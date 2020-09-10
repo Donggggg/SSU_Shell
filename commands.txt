@@ -1,5 +1,5 @@
 echo Hello world
 ls
 pwd
-sleep 10
+sleep 1
 cat commands.txt

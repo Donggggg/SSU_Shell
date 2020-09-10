@@ -50,6 +50,9 @@ int main(int argc, char* argv[]) {
 	int argNum, pipeNum;
 	FILE* fp;
 
+	int **pipes = (int**)malloc(MAX_NUM_TOKENS * sizeof(int*));
+	int startPid;
+
 	// 배치식 실행 파일 없는 경우 예외 처리
 	if(argc == 2) {
 		fp = fopen(argv[1],"r");
@@ -111,15 +114,11 @@ int main(int argc, char* argv[]) {
 					exit(1);
 				}
 				else if(pid == 0){ // 자식 프로세스
-					//fprintf(stderr, "pid[%d]/ppid[%d]\n", getpid(), getppid());
+					fprintf(stderr, "pid[%d]/ppid[%d]\n", getpid(), getppid());
 
 					if(pipeNum > 0){ // 입력 변경
-						pipe_name[4] = pipeNum-1+48;	
-						//	printf("fin's filename : %s\n", pipe_name);
-
-						while((fp_pipe_in = fopen(pipe_name, "r")) == NULL);
-
-						dup2(fileno(fp_pipe_in), 0);
+						close(pipes[pipeNum-1][1]);
+						dup2(pipes[pipeNum-1][0], 0);
 					}
 
 					// 명령어 실행
@@ -129,11 +128,14 @@ int main(int argc, char* argv[]) {
 					}
 				}
 				else if(pid > 0){ // 부모 프로세스
-					while(wait(&status) > 0);
-					for(i = 0; i < pipeNum; i++){
-						pipe_name[4] = i+48;
-						unlink(pipe_name);
+					int finPid=0;
+					while( wait(&status) > 0){
+						fprintf(stderr, "%d\n", finPid-startPid);
+					//	close(pipes[finPid][0]);
+					//	close(pipes[finPid][1]);
+					//	free(pipes[finPid++]);
 					}
+					printf("i thinks here cnat\n");
 					break;
 				}
 			}
@@ -143,6 +145,13 @@ int main(int argc, char* argv[]) {
 				strcat(command, COMMAND_PATH);
 				strcat(command, tokens[exePos]);
 
+				pipes[pipeNum] = (int*)malloc(2 * sizeof(int));
+
+				if(pipe(pipes[pipeNum]) < 0){
+					fprintf(stderr, "error for pipe\n");
+					exit(1);
+				}
+
 				if((pid = fork()) < 0){
 					fprintf(stderr, "fork() error on command\n");
 					exit(1);
@@ -151,21 +160,11 @@ int main(int argc, char* argv[]) {
 					//fprintf(stderr, "pid[%d]/ppid[%d]\n", getpid(), getppid());
 
 					// 표준 출력을 pipe로 변경
-					pipe_name[4] = pipeNum+48;	
-					//	printf("out's filename : %s\n", pipe_name);
-
-					if((fp_pipe_out = fopen(pipe_name, "w+")) == NULL){
-						fprintf(stderr, "fopen error for pipe file[out]\n");
-						exit(1);
-					}
-					dup2(fileno(fp_pipe_out), 1);
+					dup2(pipes[pipeNum][1], 1);
+					startPid = getpid();
 
 					if(pipeNum > 0){ // 입력 변경
-						pipe_name[4] = pipeNum-1 + 48;	
-
-						while((fp_pipe_in = fopen(pipe_name, "r")) == NULL);
-
-						dup2(fileno(fp_pipe_in), 0);
+						dup2(pipes[pipeNum-1][0], 0);
 					}
 
 					// 명령어 실행
@@ -185,7 +184,6 @@ int main(int argc, char* argv[]) {
 					free(args);
 
 					args = (char**)malloc(MAX_NUM_TOKENS * sizeof(char*));
-					usleep(100000);
 				}
 			}
 			else{

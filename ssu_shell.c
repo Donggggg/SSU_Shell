@@ -8,20 +8,21 @@
 #define MAX_INPUT_SIZE 1024
 #define MAX_TOKEN_SIZE 64
 #define MAX_NUM_TOKENS 64
+#define PATH_SIZE 10
+#define PIPE_NAME_SIZE 5
 #define TRUE 1
 #define FALSE 0
 
-char COMMAND_PATH[10] = "/usr/bin/";
-char pipe_name[5] = "pipe";
+const char COMMAND_PATH[PATH_SIZE] = "/usr/bin/";
+char pipe_name[PIPE_NAME_SIZE] = "pipe";
 
-char **tokenize(char *line)
+char **tokenize(char *line) // 명령어 토크나이징하는 함수
 {
-	char **tokens = (char **)malloc(MAX_NUM_TOKENS * sizeof(char *));
-	char *token = (char *)malloc(MAX_TOKEN_SIZE * sizeof(char));
+	char **tokens = (char **)malloc(MAX_NUM_TOKENS * sizeof(char *)); // 토큰 리스트
+	char *token = (char *)malloc(MAX_TOKEN_SIZE * sizeof(char)); // 토큰
 	int i, tokenIndex = 0, tokenNo = 0;
 
-	for(i =0; i < strlen(line); i++){
-
+	for(i = 0; i < strlen(line); i++){
 		char readChar = line[i];
 
 		if (readChar == ' ' || readChar == '\n' || readChar == '\t'){
@@ -41,49 +42,45 @@ char **tokenize(char *line)
 	return tokens;
 }
 
-int main(int argc, char* argv[]) {
-	char line[MAX_INPUT_SIZE], command[MAX_TOKEN_SIZE];            
-	char **tokens, **args;              
+int main(int argc, char* argv[]) 
+{
+	char line[MAX_INPUT_SIZE], command[MAX_TOKEN_SIZE];
+	char **tokens, **args;
 	int i, j, cur, exePos;
-	FILE *fp_pipe_in, *fp_pipe_out;
 	int pid, status;
 	int argNum, pipeNum;
-	FILE* fp;
+	FILE *fp, *fp_pipe_in, *fp_pipe_out;
 
 	// 배치식 실행 파일 없는 경우 예외 처리
 	if(argc == 2) {
-		fp = fopen(argv[1],"r");
-		if(fp < 0) {
-			printf("File doesn't exists.");
-			return -1;
+		if((fp = fopen(argv[1],"r")) == NULL){
+			fprintf(stderr, "file doesn't exits\n");
+			exit(1);
 		}
 	}
 
 	while(1) {			
-		/* BEGIN: TAKING INPUT */
 		bzero(line, sizeof(line)); // 버퍼 비워 줌
 
 		if(argc == 2) { // 배치식
-			if(fgets(line, sizeof(line), fp) == NULL) { // 명령어파일 read
+			if(fscanf(fp, "%[^\n]", line) < 0)  // 명령어파일 read
 				break;	
-			}
+		
+			fgetc(fp);
 			line[strlen(line) - 1] = '\0';
-		} else { // 대화식
+		}
+		else { // 대화식
 			printf("$ ");
 			scanf("%[^\n]", line);
 			getchar();
+
+			if(!strcmp(line, "")) // 엔터 입력 처리
+				continue;
 		}
-
-		if(!strcmp(line, "")) // 엔터 입력 처리
-			continue;
-
-		//	printf("Command entered: %s (remove this debug output later)\n", line);
-		/* END: TAKING INPUT */
 
 		line[strlen(line)] = '\n'; //terminate with new line
 		tokens = tokenize(line);
 
-		//do whatever you want with the commands, here we just print them
 
 		/*	for(i=0; tokens[i] != NULL; i++){
 			printf("found token %s (remove this debug output later)\n", tokens[i]);
@@ -91,6 +88,7 @@ int main(int argc, char* argv[]) {
 			}
 		 */
 
+		// 명령어 실행 전처리
 		args = (char**)malloc(MAX_NUM_TOKENS * sizeof(char*));
 		exePos=0;
 		argNum=0;
@@ -114,7 +112,7 @@ int main(int argc, char* argv[]) {
 					//fprintf(stderr, "pid[%d]/ppid[%d]\n", getpid(), getppid());
 
 					if(pipeNum > 0){ // 입력 변경
-						pipe_name[4] = pipeNum-1+48;	
+						pipe_name[PIPE_NAME_SIZE - 1] = pipeNum - 1 + 48;	
 						//	printf("fin's filename : %s\n", pipe_name);
 
 						while((fp_pipe_in = fopen(pipe_name, "r")) == NULL);
@@ -124,20 +122,21 @@ int main(int argc, char* argv[]) {
 
 					// 명령어 실행
 					if(execv(command, args) < 0){
-						fprintf(stderr, "execl error\n");
+						fprintf(stderr, "SSUShell : Incorrect command\n");
 						exit(1);
 					}
 				}
 				else if(pid > 0){ // 부모 프로세스
-					while(wait(&status) > 0);
-					for(i = 0; i < pipeNum; i++){
+					while(wait(&status) > 0); // 모든 자식이 종료될 때까지 wait
+
+					for(i = 0; i < pipeNum; i++){ // 파이프 파일 삭제
 						pipe_name[4] = i+48;
 						unlink(pipe_name);
 					}
 					break;
 				}
 			}
-			else if(!strcmp(tokens[cur], "|")){ // 파이프 처리
+			else if(!strcmp(tokens[cur], "|")) { // 파이프 처리
 				//	printf("pipe execute!\n");
 				bzero(command, strlen(command));
 				strcat(command, COMMAND_PATH);
@@ -158,10 +157,11 @@ int main(int argc, char* argv[]) {
 						fprintf(stderr, "fopen error for pipe file[out]\n");
 						exit(1);
 					}
+
 					dup2(fileno(fp_pipe_out), 1);
 
 					if(pipeNum > 0){ // 입력 변경
-						pipe_name[4] = pipeNum-1 + 48;	
+						pipe_name[PIPE_NAME_SIZE - 1] = pipeNum - 1 + 48;	
 
 						while((fp_pipe_in = fopen(pipe_name, "r")) == NULL);
 
@@ -170,37 +170,34 @@ int main(int argc, char* argv[]) {
 
 					// 명령어 실행
 					if(execv(command, args) < 0){
-						fprintf(stderr, "execl error\n");
+						fprintf(stderr, "SSUShell : Incorrect command\n");
 						exit(1);
 					}
 				}
 				else if(pid > 0){ // 부모 프로세스
-					cur++;
-					exePos = cur;
-					argNum = 0;
-					pipeNum++;
+					cur++; // 다음 토큰으로 이동
+					exePos = cur; // 명령어 실행 파일명 재지정
+					argNum = 0; // 인자 개수 초기화
+					pipeNum++; // pipe개수 증가
 
+					// 메모리 관리
 					for(j = 0; args[j] != NULL; j++)
 						free(args[j]);
 					free(args);
-
 					args = (char**)malloc(MAX_NUM_TOKENS * sizeof(char*));
-					usleep(100000);
+
+					usleep(100000); // 순서 조정
 				}
 			}
-			else{
+			else { // 명령인 경우 리스트에 추가
 				args[argNum] = (char*)malloc(MAX_TOKEN_SIZE * sizeof(char));
 				strcpy(args[argNum++], tokens[cur++]);
 			}
-
 		}
-
 	}
 
-	// Freeing the allocated memory	
-	for(i=0;tokens[i]!=NULL;i++){
+	for(i = 0; tokens[i] != NULL; i++)
 		free(tokens[i]);
-	}
 	free(tokens);
 
 	return 0;
