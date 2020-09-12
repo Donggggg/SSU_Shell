@@ -81,13 +81,6 @@ int main(int argc, char* argv[])
 		line[strlen(line)] = '\n'; //terminate with new line
 		tokens = tokenize(line);
 
-
-		/*	for(i=0; tokens[i] != NULL; i++){
-			printf("found token %s (remove this debug output later)\n", tokens[i]);
-			total_tokens++;
-			}
-		 */
-
 		// 명령어 실행 전처리
 		args = (char**)malloc(MAX_NUM_TOKENS * sizeof(char*));
 		exePos=0;
