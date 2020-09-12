@@ -7,39 +7,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <ncurses.h>
-
-#define BUFSIZE 1024
-
-// 상태창 구조체
-typedef struct top_status {
-	char *uptime_status; // uptime 정보 [현재 시간, 부팅 걸린 시간, 유저수, load avg(1,5,15분 간격)]
-	int process_state[5]; // 프로세스 상태 정보 [total, running, sleeping, stopped, zombie]
-	long long cpu_share[8]; // user, system, nice, idle, IO-wait, hardware interrupts, software interrupts, stolen
-	double physical_memory[4]; // total, free, used, buff/cache
-	double virtual_memory[4]; // total, free, used, avail Mem
-}Status;
-
-// 프로세스 테이블 구조체
-typedef struct process_table {
-	int pid; // pid
-	char *user; // username
-	long priority; // priority
-	long nice; // nice
-	long long VIRT; // virtual memory
-	long long RES; // real memory
-	long long SHR; // shared memory
-	double cpu_share; // cpu percent
-	double mem_share; // memory percent
-	char *time; // process time
-	char *command; // command name
-}Table;
-
-void init_Status(Status *status);
-void fill_Status(Status *status);
-char *get_UptimeStatus();
-void get_ProcessStatus(Status *status);
-void get_CPUStatus(Status *status);
-void print_Status(Status *status);
+#include "ssu_shell.h"
 
 long long old_cpulist[8];
 
@@ -138,7 +106,7 @@ void get_ProcessStatus(Status *status)
 	int i, num;
 	char filename[BUFSIZE], buf[BUFSIZE];
 	FILE *fp;
-	struct stat statbuf;
+	//struct stat statbuf;
 	struct dirent **namelist;
 
 	for(i = 0; i < 5; i++)

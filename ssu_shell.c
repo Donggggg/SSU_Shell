@@ -4,14 +4,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
-
-#define MAX_INPUT_SIZE 1024
-#define MAX_TOKEN_SIZE 64
-#define MAX_NUM_TOKENS 64
-#define PATH_SIZE 10
-#define PIPE_NAME_SIZE 5
-#define TRUE 1
-#define FALSE 0
+#include "ssu_shell.h"
 
 const char COMMAND_PATH[PATH_SIZE] = "/usr/bin/";
 char pipe_name[PIPE_NAME_SIZE] = "pipe";
@@ -22,7 +15,7 @@ char **tokenize(char *line) // 명령어 토크나이징하는 함수
 	char *token = (char *)malloc(MAX_TOKEN_SIZE * sizeof(char)); // 토큰
 	int i, tokenIndex = 0, tokenNo = 0;
 
-	for(i = 0; i < strlen(line); i++){
+	for(i = 0; i < (int)strlen(line); i++){
 		char readChar = line[i];
 
 		if (readChar == ' ' || readChar == '\n' || readChar == '\t'){
