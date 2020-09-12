@@ -9,6 +9,10 @@
 #include <ncurses.h>
 #include "ssu_shell.h"
 
+#define KB_TO_MiB 1024
+#define LENGTH_SIZE 64
+void get_MemoryStatus(Status *status);
+
 long long old_cpulist[8];
 
 int main()
@@ -20,27 +24,25 @@ int main()
 
 	init_Status(status);
 
+	cbreak();
+
 	while(1)
 	{
 		fill_Status(status);
 
-		printw("%d\n", count++);	
+		printw("reset count : %d\n", count++);	
 
 		refresh();
 		sleep(3);
-		getch();
+		//getch();
 		clear();
-		endwin();
 	}
+	endwin();
 }
 
 void init_Status(Status *status) {
 	int i;
 
-//	bzero(status->uptime_status, strlen(status->uptime_status));
-//	free(status->uptime_status);
-//	for(i = 0; i < 5; i++)
-//		status->process_state[i] = 0;
 	for(i = 0; i < 8; i++)
 		old_cpulist[i] = 0;
 	for(i = 0; i < 4; i++){
@@ -51,54 +53,52 @@ void init_Status(Status *status) {
 
 void fill_Status(Status *status) 
 {
-	char buffer[BUFSIZE];
-
-	strcpy(buffer, get_UptimeStatus());
-	status->uptime_status = (char*)malloc(strlen(buffer)*sizeof(char));
-	strcpy(status->uptime_status, buffer);
-	status->uptime_status[strlen(status->uptime_status)-1] = '\0';
+	get_UptimeStatus(status);
 
 	get_ProcessStatus(status);
 
 	get_CPUStatus(status);
 
-	print_Status(status);
+	get_MemoryStatus(status);
 
-	free(status->uptime_status);
+	print_Status(status);
 }
 
-char *get_UptimeStatus() 
+void get_UptimeStatus(Status *status) 
 {
-	int pid, status, length;
+	int pid, wstatus;
 	int uptime_pipe[2];
-	char* buffer, temp_buffer[BUFSIZE];
+	char buffer[BUFSIZE], temp_buffer[BUFSIZE - 10];
 
+	bzero(buffer, BUFSIZE);
+	bzero(status->uptime_status, BUFSIZE);
 	pipe(uptime_pipe);
-		if((pid = fork()) < 0){
-			fprintf(stderr, "fork error\n");
-			exit(1);
-		}
-		else if(pid == 0){
-			dup2(uptime_pipe[1], 1);
-			execl("/usr/bin/uptime", "uptime", (char*)0);
-		}
-		else if(pid > 0) {
-			dup2(0, 100);
-			dup2(uptime_pipe[0],0);
-			wait(&status);
-		}
 
-		length = read(0, temp_buffer, 1024);
-		dup2(100, 0);
-		temp_buffer[strlen(temp_buffer)-1] = '\0';
-		buffer = (char*)malloc((strlen("top -") + length) * sizeof(char));
-		strcat(buffer, "top -");
-		strcat(buffer, temp_buffer);
+	if((pid = fork()) < 0){
+		fprintf(stderr, "fork error\n");
+		exit(1);
+	}
+	else if(pid == 0){
+		dup2(uptime_pipe[1], 1);
+		execl("/usr/bin/uptime", "uptime", (char*)0);
+	}
+	else if(pid > 0) {
+		dup2(0, 100);
+		dup2(uptime_pipe[0],0);
+		wait(&wstatus);
+	}
 
-		close(uptime_pipe[0]);
-		close(uptime_pipe[1]);
+	read(0, temp_buffer, 1024);
+	dup2(100, 0);
+	temp_buffer[strlen(temp_buffer)-1] = '\0';
+	strcat(buffer, "top -");
+	strcat(buffer, temp_buffer);
+	strcpy(status->uptime_status, buffer);
+	status->uptime_status[strlen(status->uptime_status)-1] = '\0';
 
-		return buffer;
+	close(uptime_pipe[0]);
+	close(uptime_pipe[1]);
+
 }
 
 void get_ProcessStatus(Status *status)
@@ -154,6 +154,10 @@ void get_ProcessStatus(Status *status)
 		fclose(fp);
 
 	}
+
+	for(i = 0; i < num; i++)
+		free(namelist[i]);
+	free(namelist);
 }
 
 void get_CPUStatus(Status *status)
@@ -186,6 +190,69 @@ void get_CPUStatus(Status *status)
 
 	for(i = 0; i < 8; i++)
 		old_cpulist[i] = cpu_list[i];
+}
+
+void get_MemoryStatus(Status *status)
+{
+	int i;
+	long long size, buff_cache = 0;
+	char buffer[BUFSIZE], tmp[LENGTH_SIZE];
+	FILE *fp;
+
+	if((fp = fopen("/proc/meminfo", "r")) == NULL){
+		fprintf(stderr, "fopen error for /proc/meminfo\n");
+		exit(1);
+	}
+
+	bzero(buffer, BUFSIZE);
+
+	for(i = 0 ; i < 22; i++){
+		fscanf(fp, "%[^:]", tmp);
+		fgetc(fp);
+		fscanf(fp, "%[^kB]", buffer);
+		fgetc(fp);
+		fscanf(fp, "%[^\n]", tmp);
+		fgetc(fp);
+		size = atoll(buffer);
+
+		switch(i) {
+			case 0 : // MemTotal
+				status->physical_memory[0] = (double)size / KB_TO_MiB; 
+				break;
+			case 1 : // MemFree
+				status->physical_memory[1] = (double)size / KB_TO_MiB; 
+				break;
+			case 2 : // MemAvailable
+				status->virtual_memory[3] = (double)size / KB_TO_MiB; 
+				break;
+			case 3 : // Buffers
+				buff_cache += size;
+				break;
+			case 4 : // Cached
+				buff_cache += size;
+				break;
+				/*
+			case 5 : // SwapCached
+				buff_cache += size;
+				break;
+				*/
+			case 14 : // SwapTotal
+				status->virtual_memory[0] = (double)size / KB_TO_MiB; 
+				break;
+			case 15 : // SwapFree
+				status->virtual_memory[1] = (double)size / KB_TO_MiB; 
+				status->virtual_memory[2] = status->virtual_memory[0] - status->virtual_memory[1];
+				break;
+			case 21 : // Reclaim
+				buff_cache += size;
+				status->physical_memory[3] = (double)buff_cache / KB_TO_MiB; 
+				status->physical_memory[2] = status->physical_memory[0] 
+					- status->physical_memory[1] - status->physical_memory[3];
+				break;
+		}
+	}
+
+	fclose(fp);
 }
 
 void print_Status(Status *status)
@@ -225,4 +292,21 @@ void print_Status(Status *status)
 	bzero(buffer, strlen(buffer));
 	bzero(tmp, strlen(tmp));
 
+	strcat(buffer, "MiB Mem :");
+	sprintf(tmp, "    %5.1f total,    %5.1f free,    %5.1f used,    %5.1f buff/cache"
+			, status->physical_memory[0], status->physical_memory[1]
+			, status->physical_memory[2], status->physical_memory[3]);
+	strcat(buffer, tmp);
+
+	printw("%s\n", buffer);
+	bzero(buffer, strlen(buffer));
+	bzero(tmp, strlen(tmp));
+
+	strcat(buffer, "MiB Swap :");
+	sprintf(tmp, "    %5.1f total,    %5.1f free,    %5.1f used,    %5.1f avail Mem"
+			, status->virtual_memory[0], status->virtual_memory[1]
+			, status->virtual_memory[2], status->virtual_memory[3]);
+	strcat(buffer, tmp);
+
+	printw("%s\n", buffer);
 }

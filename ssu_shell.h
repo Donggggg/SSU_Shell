@@ -9,7 +9,7 @@
 
 // 상태창 구조체
 typedef struct top_status {
-	char *uptime_status; // uptime 정보 [현재 시간, 부팅 걸린 시간, 유저수, load avg(1,5,15분 간격)]
+	char uptime_status[BUFSIZE]; // uptime 정보 [현재 시간, 부팅 걸린 시간, 유저수, load avg(1,5,15분 간격)]
 	int process_state[5]; // 프로세스 상태 정보 [total, running, sleeping, stopped, zombie]
 	long long cpu_share[8]; // user, system, nice, idle, IO-wait, hardware interrupts, software interrupts, stolen
 	double physical_memory[4]; // total, free, used, buff/cache
@@ -33,7 +33,7 @@ typedef struct process_table {
 
 void init_Status(Status *status);
 void fill_Status(Status *status);
-char *get_UptimeStatus();
+void get_UptimeStatus(Status *status);
 void get_ProcessStatus(Status *status);
 void get_CPUStatus(Status *status);
 void print_Status(Status *status);
