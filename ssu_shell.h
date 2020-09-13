@@ -25,11 +25,14 @@ typedef struct process_table {
 	long long VIRT; // virtual memory
 	long long RES; // real memory
 	long long SHR; // shared memory
-	double cpu_share; // cpu percent
+	long long cpu_share; // cpu percent
 	double mem_share; // memory percent
 	char state; // state
 	char time[16]; // process time
 	char command[30]; // command name
+
+	double cpu_percent;
+	long long cpu_amount;
 }Table;
 
 void init_Status(Status *status);

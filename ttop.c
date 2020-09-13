@@ -14,9 +14,14 @@
 void get_MemoryStatus(Status *status);
 
 Table* fill_Table(Status *status);
+long long findOldAmount(int pid);
 void print_Table(Table *table_list, Status *status);
 
 long long old_cpulist[8];
+long long **old_cpu_amount;
+int old_num;
+long long total_memory;
+long long total_cpu_amount;
 
 int main()
 {
@@ -112,10 +117,9 @@ void get_UptimeStatus(Status *status)
 
 void get_ProcessStatus(Status *status)
 {
-	int i, num;
+	int i, num, pNum = 0;
 	char filename[BUFSIZE], buf[BUFSIZE];
 	FILE *fp;
-	//struct stat statbuf;
 	struct dirent **namelist;
 
 	for(i = 0; i < 5; i++)
@@ -129,6 +133,7 @@ void get_ProcessStatus(Status *status)
 				|| !atoi(namelist[i]->d_name))
 			continue;
 
+		pNum++;
 		bzero(filename, strlen(filename));
 		strcat(filename, "/proc/");
 		strcat(filename, namelist[i]->d_name);
@@ -159,9 +164,18 @@ void get_ProcessStatus(Status *status)
 		else if(!strcmp(buf, "Z"))
 			status->process_state[4]++;
 
-
 		fclose(fp);
 
+	}
+
+	if(old_cpu_amount == NULL) {
+		old_cpu_amount = (long long**)malloc(pNum *sizeof(long long*));
+		old_num = pNum;
+		for(i = 0; i < pNum; i++){
+			old_cpu_amount[i] = (long long*)malloc(2 * sizeof(long long));
+			old_cpu_amount[i][0] = 0;
+			old_cpu_amount[i][1] = 0;
+		}
 	}
 
 	for(i = 0; i < num; i++)
@@ -227,6 +241,7 @@ void get_MemoryStatus(Status *status)
 		switch(i) {
 			case 0 : // MemTotal
 				status->physical_memory[0] = (double)size / KB_TO_MiB; 
+				total_memory = size;
 				break;
 			case 1 : // MemFree
 				status->physical_memory[1] = (double)size / KB_TO_MiB; 
@@ -318,14 +333,15 @@ void print_Status(Status *status)
 Table* fill_Table(Status *status) // 이거 할당 타이밍 생각해보자.
 {
 	int i, j, num, pNum = 0, cur=0;
-	char filename[LENGTH_SIZE], buf[BUFSIZE];
+	char filename[LENGTH_SIZE], buf[BUFSIZE], tmp[BUFSIZE];
 	struct dirent **namelist;
 	Table *tablelist;
-	FILE *fp;
+	FILE *fp, *sfp;
 
 	bzero(filename , LENGTH_SIZE);
 	num = scandir("/proc", &namelist, NULL, alphasort);
 	pNum = status->process_state[0];
+	total_cpu_amount = 0;
 
 	tablelist = (Table*)malloc(pNum * sizeof(Table));
 
@@ -343,6 +359,12 @@ Table* fill_Table(Status *status) // 이거 할당 타이밍 생각해보자.
 			fprintf(stderr, "fopen error for %s\n", filename);
 			continue;
 		}
+		strcat(filename, "us");
+		if((sfp = fopen(filename, "r")) == NULL){
+			fprintf(stderr, "fopen error for %s\n", filename);
+			continue;
+		}
+
 
 		for(j = 0 ; j < 20; j++){
 			fscanf(fp, "%[^ ]", buf);
@@ -360,6 +382,15 @@ Table* fill_Table(Status *status) // 이거 할당 타이밍 생각해보자.
 				case 2 : // state
 					tablelist[cur].state = buf[0];
 					break;
+				case 14 : // utime
+					tablelist[cur].cpu_amount = atoll(buf);
+					break;
+				case 15 : // stime
+					tablelist[cur].cpu_amount += atoll(buf);
+					tablelist[cur].cpu_share = 
+						tablelist[cur].cpu_amount - findOldAmount(tablelist[cur].pid);
+					total_cpu_amount += tablelist[cur].cpu_share;
+					break;
 				case 17 : // priority
 					tablelist[cur].priority = atoi(buf);
 					break;
@@ -369,8 +400,49 @@ Table* fill_Table(Status *status) // 이거 할당 타이밍 생각해보자.
 			}
 		}
 
+		tablelist[cur].VIRT = 0;
+		tablelist[cur].RES = 0;
+		tablelist[cur].SHR = 0;
+
+		while(1) {
+			bzero(tmp, BUFSIZE);
+			bzero(buf, BUFSIZE);
+
+			if(fscanf(sfp, "%[^:]", tmp) == EOF)
+				break;
+
+			fgetc(sfp);
+
+			if(!strcmp(tmp, "VmSize")){
+				fscanf(sfp, "%[^kB]", buf);
+				fgetc(sfp);
+				fscanf(sfp, "%[^\n]", tmp);
+				fgetc(sfp);
+				tablelist[cur].VIRT = atoll(buf);
+			}
+			else if(!strcmp(tmp, "VmRSS")){
+				fscanf(sfp, "%[^kB]", buf);
+				fgetc(sfp);
+				fscanf(sfp, "%[^\n]", tmp);
+				fgetc(sfp);
+				tablelist[cur].RES = atoll(buf);
+			}
+			else if(!strcmp(tmp, "RssFile")){
+				fscanf(sfp, "%[^kB]", buf);
+				fgetc(sfp);
+				fscanf(sfp, "%[^\n]", tmp);
+				fgetc(sfp);
+				tablelist[cur].SHR = atoll(buf);
+			}
+			else{
+				fscanf(sfp, "%[^\n]", tmp);
+				fgetc(sfp);
+			}
+		}
+
 		cur++;
 		fclose(fp);
+		fclose(sfp);
 
 	}
 
@@ -378,8 +450,66 @@ Table* fill_Table(Status *status) // 이거 할당 타이밍 생각해보자.
 		free(namelist[i]);
 	free(namelist);
 
+	free(old_cpu_amount);
+	old_cpu_amount = (long long**)malloc(pNum * sizeof(long long*));
+	old_num = pNum;
+
+	for(i = 0; i < pNum; i++){
+		tablelist[i].cpu_percent = (double)tablelist[i].cpu_share / total_cpu_amount * 100;
+		int ceil = tablelist[i].cpu_percent * 100;
+		tablelist[i].cpu_percent = (double)ceil / 100;
+		if(tablelist[i].cpu_percent !=0)
+			printf("%lld\n", tablelist[i].cpu_share);
+		old_cpu_amount[i] = (long long*)malloc(2 * sizeof(long long));
+		old_cpu_amount[i][0] = tablelist[i].pid;
+		old_cpu_amount[i][1] = tablelist[i].cpu_amount;
+	}
+
 	return tablelist;
 
+}
+
+long long findOldAmount(int pid)
+{
+	int i;
+
+	for(i = 0; i < old_num; i++)
+		if(pid == (int)old_cpu_amount[i][0])
+			return old_cpu_amount[i][1];
+
+	return 0;
+}
+
+void sortByPid(Table *tablelist, int num)
+{
+	int i, j;
+	Table tmp;
+
+	for(i = 0; i < num; i++){
+		for(j = i; j < num; j++){
+			if(tablelist[i].pid > tablelist[j].pid){
+				tmp = tablelist[i];
+				tablelist[i] = tablelist[j];
+				tablelist[j] = tmp;
+			}
+		}
+	}
+}
+
+void sortByCPUShare(Table *tablelist, int num)
+{
+	int i, j;
+	Table tmp;
+
+	for(i = 0; i < num; i++){
+		for(j = i; j < num; j++){
+			if(tablelist[i].cpu_share < tablelist[j].cpu_share){
+				tmp = tablelist[i];
+				tablelist[i] = tablelist[j];
+				tablelist[j] = tmp;
+			}
+		}
+	}
 }
 
 void print_Table(Table *table_list, Status *status)
@@ -399,22 +529,56 @@ void print_Table(Table *table_list, Status *status)
 	attroff(atts);
 	bzero(buffer, BUFSIZE);
 
+	sortByPid(table_list, num);
+	sortByCPUShare(table_list, num);
+
 	for(i = 0; i < num ; i++){
 		bzero(buffer, BUFSIZE);
 		bzero(tmp, LENGTH_SIZE);
 		sprintf(tmp, "%7d ", table_list[i].pid);
 		strcat(buffer, tmp);
+
 		bzero(tmp, LENGTH_SIZE);
 		sprintf(tmp, "%-9s",table_list[i].user);
 		strcat(buffer, tmp);
+
 		bzero(tmp, LENGTH_SIZE);
-		sprintf(tmp, "%3ld ",table_list[i].priority);
+		if(table_list[i].priority == -100)
+			sprintf(tmp, "%3s ", "rt");
+		else
+			sprintf(tmp, "%3ld ",table_list[i].priority);
 		strcat(buffer, tmp);
+
 		bzero(tmp, LENGTH_SIZE);
 		sprintf(tmp, "%3ld",table_list[i].nice);
 		strcat(buffer, tmp);
-		bzero(tmp, LENGTH_SIZE);
 
+		bzero(tmp, LENGTH_SIZE);
+		sprintf(tmp, "%8lld",table_list[i].VIRT);
+		strcat(buffer, tmp);
+
+		bzero(tmp, LENGTH_SIZE);
+		sprintf(tmp, "%7lld",table_list[i].RES);
+		strcat(buffer, tmp);
+
+		bzero(tmp, LENGTH_SIZE);
+		sprintf(tmp, "%7lld ",table_list[i].SHR);
+		strcat(buffer, tmp);
+
+		bzero(tmp, LENGTH_SIZE);
+		sprintf(tmp, "%c  ",table_list[i].state);
+		strcat(buffer, tmp);
+
+		bzero(tmp, LENGTH_SIZE);
+		sprintf(tmp, "%4.1f", table_list[i].cpu_percent);
+		strcat(buffer, tmp);
+
+		bzero(tmp, LENGTH_SIZE);
+		sprintf(tmp, " %lld", table_list[i].cpu_share);
+		strcat(buffer, tmp);
+		bzero(tmp, LENGTH_SIZE);
+		sprintf(tmp, " %lld", total_cpu_amount);
+		strcat(buffer, tmp);
 
 
 		printw("%s\n", buffer);
