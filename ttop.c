@@ -13,11 +13,15 @@
 #define LENGTH_SIZE 64
 void get_MemoryStatus(Status *status);
 
+Table* fill_Table(Status *status);
+void print_Table(Table *table_list, Status *status);
+
 long long old_cpulist[8];
 
 int main()
 {
 	Status *status = (Status*)malloc(sizeof(Status));
+	Table *table_list;
 
 	initscr();
 	int count = 0;
@@ -28,10 +32,16 @@ int main()
 
 	while(1)
 	{
+		//sleep(3);
 		fill_Status(status);
+		print_Status(status);
+		printf("%d\n", status->process_state[0]);
 
+		table_list = fill_Table(status);
+		print_Table(table_list, status);
 		printw("reset count : %d\n", count++);	
 
+		//free(table_list);
 		refresh();
 		sleep(3);
 		//getch();
@@ -61,7 +71,6 @@ void fill_Status(Status *status)
 
 	get_MemoryStatus(status);
 
-	print_Status(status);
 }
 
 void get_UptimeStatus(Status *status) 
@@ -113,7 +122,7 @@ void get_ProcessStatus(Status *status)
 		status->process_state[i] = 0;
 
 	num = scandir("/proc", &namelist, NULL, alphasort);
-	strcat(filename, "/proc/");
+	//	strcat(filename, "/proc/");
 
 	for(i = 0; i < num; i++){ // '/proc' 디렉토리 순회 탐색
 		if(!strcmp(namelist[i]->d_name, ".") || !strcmp(namelist[i]->d_name, "..")
@@ -231,11 +240,6 @@ void get_MemoryStatus(Status *status)
 			case 4 : // Cached
 				buff_cache += size;
 				break;
-				/*
-			case 5 : // SwapCached
-				buff_cache += size;
-				break;
-				*/
 			case 14 : // SwapTotal
 				status->virtual_memory[0] = (double)size / KB_TO_MiB; 
 				break;
@@ -308,5 +312,115 @@ void print_Status(Status *status)
 			, status->virtual_memory[2], status->virtual_memory[3]);
 	strcat(buffer, tmp);
 
+	printw("%s\n\n", buffer);
+}
+
+Table* fill_Table(Status *status) // 이거 할당 타이밍 생각해보자.
+{
+	int i, j, num, pNum = 0, cur=0;
+	char filename[LENGTH_SIZE], buf[BUFSIZE];
+	struct dirent **namelist;
+	Table *tablelist;
+	FILE *fp;
+
+	bzero(filename , LENGTH_SIZE);
+	num = scandir("/proc", &namelist, NULL, alphasort);
+	pNum = status->process_state[0];
+
+	tablelist = (Table*)malloc(pNum * sizeof(Table));
+
+	for(i = 0; i < num; i++){
+		if(!strcmp(namelist[i]->d_name, ".") || !strcmp(namelist[i]->d_name, "..")
+				|| !atoi(namelist[i]->d_name))
+			continue;
+
+		bzero(filename, LENGTH_SIZE);
+		strcpy(filename, "/proc/");
+		strcat(filename, namelist[i]->d_name);
+		strcat(filename, "/stat");
+
+		if((fp = fopen(filename, "r")) == NULL){
+			fprintf(stderr, "fopen error for %s\n", filename);
+			continue;
+		}
+
+		for(j = 0 ; j < 20; j++){
+			fscanf(fp, "%[^ ]", buf);
+			fgetc(fp);
+
+			switch(j)
+			{
+				case 0 : // pid
+					tablelist[cur].pid = atoi(buf);
+					strcpy(tablelist[cur].user, "donggyu");
+					break;
+				case 1 : // command
+					strcpy(tablelist[cur].command, buf);
+					break;
+				case 2 : // state
+					tablelist[cur].state = buf[0];
+					break;
+				case 17 : // priority
+					tablelist[cur].priority = atoi(buf);
+					break;
+				case 18 : // nice
+					tablelist[cur].nice = atoi(buf);
+					break;
+			}
+		}
+
+		cur++;
+		fclose(fp);
+
+	}
+
+	for(i = 0; i < num; i++)
+		free(namelist[i]);
+	free(namelist);
+
+	return tablelist;
+
+}
+
+void print_Table(Table *table_list, Status *status)
+{
+	int i, num;
+	char buffer[BUFSIZE], tmp[LENGTH_SIZE];
+	int atts = A_STANDOUT;
+	num = status->process_state[0];
+
+	attrset(atts);
+	bzero(buffer, BUFSIZE);
+	strcat(buffer, "    PID USER      PR  NI    VIRT    RES    SHR S  ");
+	strcat(buffer, "\%CPU  \%MEM      TIME+ COMMAND           " );
+
+	attron(atts);
 	printw("%s\n", buffer);
+	attroff(atts);
+	bzero(buffer, BUFSIZE);
+
+	for(i = 0; i < num ; i++){
+		bzero(buffer, BUFSIZE);
+		bzero(tmp, LENGTH_SIZE);
+		sprintf(tmp, "%7d ", table_list[i].pid);
+		strcat(buffer, tmp);
+		bzero(tmp, LENGTH_SIZE);
+		sprintf(tmp, "%-9s",table_list[i].user);
+		strcat(buffer, tmp);
+		bzero(tmp, LENGTH_SIZE);
+		sprintf(tmp, "%3ld ",table_list[i].priority);
+		strcat(buffer, tmp);
+		bzero(tmp, LENGTH_SIZE);
+		sprintf(tmp, "%3ld",table_list[i].nice);
+		strcat(buffer, tmp);
+		bzero(tmp, LENGTH_SIZE);
+
+
+
+		printw("%s\n", buffer);
+	}
+
+
+	free(table_list);
+
 }

@@ -19,7 +19,7 @@ typedef struct top_status {
 // 프로세스 테이블 구조체
 typedef struct process_table {
 	int pid; // pid
-	char *user; // username
+	char user[16]; // username
 	long priority; // priority
 	long nice; // nice
 	long long VIRT; // virtual memory
@@ -27,8 +27,9 @@ typedef struct process_table {
 	long long SHR; // shared memory
 	double cpu_share; // cpu percent
 	double mem_share; // memory percent
-	char *time; // process time
-	char *command; // command name
+	char state; // state
+	char time[16]; // process time
+	char command[30]; // command name
 }Table;
 
 void init_Status(Status *status);
