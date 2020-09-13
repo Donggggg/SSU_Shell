@@ -3,67 +3,80 @@
 #include <unistd.h>
 #include <string.h>
 #include <dirent.h>
+#include <time.h>
+#include <sys/times.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <signal.h>
 #include <ncurses.h>
 #include "ssu_shell.h"
 
-#define KB_TO_MiB 1024
-#define LENGTH_SIZE 64
-void get_MemoryStatus(Status *status);
-
-Table* fill_Table(Status *status);
-long long findOldAmount(int pid);
-void print_Table(Table *table_list, Status *status);
+#define TRUE 1
+#define FALSE 0
 
 long long old_cpulist[8];
 long long **old_cpu_amount;
-int old_num;
+int old_num, table_pos, isAlarmed;
 long long total_memory;
 long long total_cpu_amount;
 
+void execute();
+void alarm_handler(int signo);
+
 int main()
 {
-	Status *status = (Status*)malloc(sizeof(Status));
-	Table *table_list;
+	int i,key = 0;
+	table_pos = 0;
+	isAlarmed = TRUE;
 
 	initscr();
-	int count = 0;
-
-	init_Status(status);
-
 	cbreak();
+	for(i = 0; i < 8; i++)
+		old_cpulist[i] = 0;
+
+	signal(SIGALRM, alarm_handler);
 
 	while(1)
 	{
-		//sleep(3);
-		fill_Status(status);
-		print_Status(status);
-		printf("%d\n", status->process_state[0]);
-
-		table_list = fill_Table(status);
-		print_Table(table_list, status);
-		printw("reset count : %d\n", count++);	
-
-		//free(table_list);
+		alarm(3);
+		execute();
 		refresh();
-		sleep(3);
-		//getch();
+		isAlarmed = FALSE;
+		key = getch();
+
+		if(key == 113) // 'q' 입력
+			break;
+		else if(key == 65 && !(table_pos == 0)) // KEY_DOWN
+			table_pos--;
+		else if(key == 66 && !(table_pos == old_num)) // KEY_UP
+			table_pos++;
+
 		clear();
 	}
 	endwin();
 }
 
-void init_Status(Status *status) {
-	int i;
-
-	for(i = 0; i < 8; i++)
-		old_cpulist[i] = 0;
-	for(i = 0; i < 4; i++){
-		status->physical_memory[i] = 0;
-		status->virtual_memory[i] = 0;
+void alarm_handler(int signo)
+{
+	if(signo == SIGALRM){
+		clear();
+		alarm(3);
+		execute();
+		refresh();
 	}
+}
+
+void execute()
+{
+	Status *status = (Status*)malloc(sizeof(Status));
+	Table *table_list;
+
+	fill_Status(status);
+	print_Status(status);
+	table_list = fill_Table(status);
+	print_Table(table_list, status);
+
 }
 
 void fill_Status(Status *status) 
@@ -107,8 +120,8 @@ void get_UptimeStatus(Status *status)
 	temp_buffer[strlen(temp_buffer)-1] = '\0';
 	strcat(buffer, "top -");
 	strcat(buffer, temp_buffer);
+	buffer[strlen(buffer)-1] ='\0';
 	strcpy(status->uptime_status, buffer);
-	status->uptime_status[strlen(status->uptime_status)-1] = '\0';
 
 	close(uptime_pipe[0]);
 	close(uptime_pipe[1]);
@@ -213,6 +226,8 @@ void get_CPUStatus(Status *status)
 
 	for(i = 0; i < 8; i++)
 		old_cpulist[i] = cpu_list[i];
+
+	fclose(fp);
 }
 
 void get_MemoryStatus(Status *status)
@@ -334,6 +349,7 @@ Table* fill_Table(Status *status) // 이거 할당 타이밍 생각해보자.
 {
 	int i, j, num, pNum = 0, cur=0;
 	char filename[LENGTH_SIZE], buf[BUFSIZE], tmp[BUFSIZE];
+	struct stat statbuf;
 	struct dirent **namelist;
 	Table *tablelist;
 	FILE *fp, *sfp;
@@ -353,6 +369,8 @@ Table* fill_Table(Status *status) // 이거 할당 타이밍 생각해보자.
 		bzero(filename, LENGTH_SIZE);
 		strcpy(filename, "/proc/");
 		strcat(filename, namelist[i]->d_name);
+		stat(filename, &statbuf);
+		strcpy(tablelist[cur].user, getUser(statbuf.st_uid));
 		strcat(filename, "/stat");
 
 		if((fp = fopen(filename, "r")) == NULL){
@@ -366,7 +384,7 @@ Table* fill_Table(Status *status) // 이거 할당 타이밍 생각해보자.
 		}
 
 
-		for(j = 0 ; j < 20; j++){
+		for(j = 0 ; j < 23; j++){
 			fscanf(fp, "%[^ ]", buf);
 			fgetc(fp);
 
@@ -374,30 +392,35 @@ Table* fill_Table(Status *status) // 이거 할당 타이밍 생각해보자.
 			{
 				case 0 : // pid
 					tablelist[cur].pid = atoi(buf);
-					strcpy(tablelist[cur].user, "donggyu");
 					break;
 				case 1 : // command
-					strcpy(buf, buf+1);
-					buf[strlen(buf)-1] = '\0';
-					strcpy(tablelist[cur].command, buf);
+					strcpy(tmp, buf+1);
+					tmp[strlen(tmp)-1] = '\0';
+					strcpy(tablelist[cur].command, tmp);
 					break;
 				case 2 : // state
 					tablelist[cur].state = buf[0];
 					break;
-				case 14 : // utime
+				case 13 : // utime
 					tablelist[cur].cpu_amount = atoll(buf);
 					break;
-				case 15 : // stime
+				case 14 : // stime
 					tablelist[cur].cpu_amount += atoll(buf);
 					tablelist[cur].cpu_share = 
 						tablelist[cur].cpu_amount - findOldAmount(tablelist[cur].pid);
 					total_cpu_amount += tablelist[cur].cpu_share;
+
+					strcpy(tablelist[cur].time,	getTime(tablelist[cur].cpu_amount));
 					break;
 				case 17 : // priority
 					tablelist[cur].priority = atoi(buf);
 					break;
 				case 18 : // nice
 					tablelist[cur].nice = atoi(buf);
+					break;
+				case 22 : // starttime
+					//	strcpy(tablelist[cur].time, getTime(starttime));
+					//tablelist[cur].nice = atoi(buf);
 					break;
 			}
 		}
@@ -460,8 +483,6 @@ Table* fill_Table(Status *status) // 이거 할당 타이밍 생각해보자.
 		tablelist[i].cpu_percent = (double)tablelist[i].cpu_share / total_cpu_amount * 100;
 		int ceil = tablelist[i].cpu_percent * 100;
 		tablelist[i].cpu_percent = (double)ceil / 100;
-		if(tablelist[i].cpu_percent !=0)
-			printf("%lld\n", tablelist[i].cpu_share);
 		old_cpu_amount[i] = (long long*)malloc(2 * sizeof(long long));
 		old_cpu_amount[i][0] = tablelist[i].pid;
 		old_cpu_amount[i][1] = tablelist[i].cpu_amount;
@@ -469,6 +490,67 @@ Table* fill_Table(Status *status) // 이거 할당 타이밍 생각해보자.
 
 	return tablelist;
 
+}
+
+char* getUser(int uid)
+{
+	char *name, tmp[LENGTH_SIZE], value[LENGTH_SIZE];
+	FILE *fp;
+
+	name = (char*)malloc(LENGTH_SIZE * sizeof(char));
+	bzero(tmp, LENGTH_SIZE);
+	bzero(value, LENGTH_SIZE);
+	if((fp = fopen("/etc/passwd", "r")) == NULL){
+		fprintf(stderr, "fopen error for /etc/passwd");
+		exit(1);
+	}
+
+	while(1)
+	{
+		fscanf(fp, "%[^:]", value);
+		fgetc(fp);
+		fscanf(fp, "%[^:]", tmp);
+		fgetc(fp);
+		fscanf(fp, "%[^:]", tmp);
+
+		if(atoi(tmp) == uid){
+			if(strlen(value) > 7){
+				value[7] = '+';
+				value[8] = '\0';
+			}
+			name = value;
+			fclose(fp);
+			return name;
+		}
+		else{
+			fscanf(fp, "%[^\n]", tmp);
+			fgetc(fp);
+		}
+	}
+
+
+
+}
+
+char* getTime(long long ttime)
+{
+	int hour, sec, min;
+	char *name, tmp[LENGTH_SIZE];
+
+	name = (char*)malloc(LENGTH_SIZE * sizeof(char));
+
+	min = ttime / sysconf(_SC_CLK_TCK);
+	sec = ttime % sysconf(_SC_CLK_TCK);
+	hour = min / 60;
+	min %= 60;
+
+	if(1000 <= hour)
+		sprintf(tmp, "%d:%02d", hour, min);
+	else
+		sprintf(tmp, "%d:%02d.%02d", hour, min, sec);
+	strcpy(name, tmp);
+
+	return name;
 }
 
 long long findOldAmount(int pid)
@@ -534,7 +616,7 @@ void print_Table(Table *table_list, Status *status)
 	sortByPid(table_list, num);
 	sortByCPUShare(table_list, num);
 
-	for(i = 0; i < num ; i++){
+	for(i = table_pos; i < num ; i++){
 		bzero(buffer, BUFSIZE);
 		bzero(tmp, LENGTH_SIZE);
 
@@ -584,7 +666,7 @@ void print_Table(Table *table_list, Status *status)
 		strcat(buffer, tmp);
 
 		bzero(tmp, LENGTH_SIZE);
-		sprintf(tmp, "%11s ","00:00:00");
+		sprintf(tmp, "%11s ", table_list[i].time);
 		strcat(buffer, tmp);
 
 		bzero(tmp, LENGTH_SIZE);

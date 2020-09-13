@@ -6,6 +6,8 @@
 #define TRUE 1
 #define FALSE 0
 #define BUFSIZE 1024
+#define KB_TO_MiB 1024
+#define LENGTH_SIZE 64
 
 // 상태창 구조체
 typedef struct top_status {
@@ -35,9 +37,14 @@ typedef struct process_table {
 	long long cpu_amount;
 }Table;
 
-void init_Status(Status *status);
 void fill_Status(Status *status);
 void get_UptimeStatus(Status *status);
 void get_ProcessStatus(Status *status);
 void get_CPUStatus(Status *status);
+void get_MemoryStatus(Status *status);
 void print_Status(Status *status);
+Table* fill_Table(Status *status);
+long long findOldAmount(int pid);
+char* getUser(int uid);
+char* getTime(long long ttime);
+void print_Table(Table *table_list, Status *status);
