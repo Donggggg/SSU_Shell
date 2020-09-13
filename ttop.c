@@ -377,6 +377,8 @@ Table* fill_Table(Status *status) // 이거 할당 타이밍 생각해보자.
 					strcpy(tablelist[cur].user, "donggyu");
 					break;
 				case 1 : // command
+					strcpy(buf, buf+1);
+					buf[strlen(buf)-1] = '\0';
 					strcpy(tablelist[cur].command, buf);
 					break;
 				case 2 : // state
@@ -527,7 +529,7 @@ void print_Table(Table *table_list, Status *status)
 	attron(atts);
 	printw("%s\n", buffer);
 	attroff(atts);
-	bzero(buffer, BUFSIZE);
+	atts = A_BOLD;
 
 	sortByPid(table_list, num);
 	sortByCPUShare(table_list, num);
@@ -535,6 +537,10 @@ void print_Table(Table *table_list, Status *status)
 	for(i = 0; i < num ; i++){
 		bzero(buffer, BUFSIZE);
 		bzero(tmp, LENGTH_SIZE);
+
+		if(table_list[i].state == 'R')
+			attron(atts);
+
 		sprintf(tmp, "%7d ", table_list[i].pid);
 		strcat(buffer, tmp);
 
@@ -570,18 +576,23 @@ void print_Table(Table *table_list, Status *status)
 		strcat(buffer, tmp);
 
 		bzero(tmp, LENGTH_SIZE);
-		sprintf(tmp, "%4.1f", table_list[i].cpu_percent);
+		sprintf(tmp, "%4.1f  ", table_list[i].cpu_percent);
 		strcat(buffer, tmp);
 
 		bzero(tmp, LENGTH_SIZE);
-		sprintf(tmp, " %lld", table_list[i].cpu_share);
-		strcat(buffer, tmp);
-		bzero(tmp, LENGTH_SIZE);
-		sprintf(tmp, " %lld", total_cpu_amount);
+		sprintf(tmp, "%4.1f", (double)table_list[i].RES / total_memory * 100);
 		strcat(buffer, tmp);
 
+		bzero(tmp, LENGTH_SIZE);
+		sprintf(tmp, "%11s ","00:00:00");
+		strcat(buffer, tmp);
+
+		bzero(tmp, LENGTH_SIZE);
+		sprintf(tmp, "%s", table_list[i].command);
+		strcat(buffer, tmp);
 
 		printw("%s\n", buffer);
+		attroff(atts);
 	}
 
 

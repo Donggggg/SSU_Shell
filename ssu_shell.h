@@ -26,7 +26,7 @@ typedef struct process_table {
 	long long RES; // real memory
 	long long SHR; // shared memory
 	long long cpu_share; // cpu percent
-	double mem_share; // memory percent
+	//double mem_share; // memory percent
 	char state; // state
 	char time[16]; // process time
 	char command[30]; // command name
