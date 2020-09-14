@@ -37,6 +37,9 @@ typedef struct process_table {
 	long long cpu_amount;
 }Table;
 
+void execute();
+void alarm_handler(int signo);
+char* getUptime();
 void fill_Status(Status *status);
 void get_UptimeStatus(Status *status);
 void get_ProcessStatus(Status *status);

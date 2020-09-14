@@ -4,25 +4,22 @@
 #include <string.h>
 #include <dirent.h>
 #include <time.h>
+#include <termios.h>
 #include <sys/times.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <sys/ioctl.h>
 #include <signal.h>
 #include <ncurses.h>
 #include "ssu_shell.h"
-
-#define TRUE 1
-#define FALSE 0
 
 long long old_cpulist[8];
 long long **old_cpu_amount;
 int old_num, table_pos, isAlarmed;
 long long total_memory;
 long long total_cpu_amount;
-
-void execute();
-void alarm_handler(int signo);
+struct winsize size;
 
 int main()
 {
@@ -39,6 +36,7 @@ int main()
 
 	while(1)
 	{
+		ioctl(2, TIOCGWINSZ, &size);
 		alarm(3);
 		execute();
 		refresh();
@@ -76,7 +74,7 @@ void execute()
 	print_Status(status);
 	table_list = fill_Table(status);
 	print_Table(table_list, status);
-
+	printw("											\n"); // 커서 지우기
 }
 
 void fill_Status(Status *status) 
@@ -93,39 +91,89 @@ void fill_Status(Status *status)
 
 void get_UptimeStatus(Status *status) 
 {
-	int pid, wstatus;
-	int uptime_pipe[2];
-	char buffer[BUFSIZE], temp_buffer[BUFSIZE - 10];
+	int i, userNum = 0;
+	char buffer[BUFSIZE], tmp[BUFSIZE - 10];
+	FILE *fp;
+	time_t now;
+	struct tm tm;
 
 	bzero(buffer, BUFSIZE);
 	bzero(status->uptime_status, BUFSIZE);
-	pipe(uptime_pipe);
 
-	if((pid = fork()) < 0){
-		fprintf(stderr, "fork error\n");
+	strcat(buffer, "top - ");
+
+	time(&now);
+	tm = *localtime(&now);
+	sprintf(tmp, "%02d:%02d:%02d ", tm.tm_hour, tm.tm_min, tm.tm_sec);
+	strcat(buffer, tmp);
+
+	strcat(buffer, "up ");
+
+	strcat(buffer, getUptime());
+
+	if((fp = fopen("/etc/passwd", "r")) == NULL){
+		fprintf(stderr, "fopen error for /proc/loadavg");
 		exit(1);
 	}
-	else if(pid == 0){
-		dup2(uptime_pipe[1], 1);
-		execl("/usr/bin/uptime", "uptime", (char*)0);
-	}
-	else if(pid > 0) {
-		dup2(0, 100);
-		dup2(uptime_pipe[0],0);
-		wait(&wstatus);
+
+	while(fscanf(fp, "%[^\n]", tmp) != 0)
+		if(strstr(tmp, "/bin/bash") != NULL)
+			userNum++;
+
+	bzero(tmp, strlen(tmp));
+	sprintf(tmp, "%d user,  ", userNum);
+	strcat(buffer, tmp);
+	fclose(fp);
+
+	if((fp = fopen("/proc/loadavg", "r")) == NULL){
+		fprintf(stderr, "fopen error for /proc/loadavg");
+		exit(1);
 	}
 
-	read(0, temp_buffer, 1024);
-	dup2(100, 0);
-	temp_buffer[strlen(temp_buffer)-1] = '\0';
-	strcat(buffer, "top -");
-	strcat(buffer, temp_buffer);
-	buffer[strlen(buffer)-1] ='\0';
+	strcat(buffer, "load average: ");
+	for(i = 0; i < 3; i++){
+		fscanf(fp, "%[^ ]", tmp);
+		fgetc(fp);
+		strcat(buffer, tmp);
+		strcat(buffer, ", ");
+	}
+
+	buffer[strlen(buffer)-2] ='\0';
 	strcpy(status->uptime_status, buffer);
 
-	close(uptime_pipe[0]);
-	close(uptime_pipe[1]);
+	fclose(fp);
 
+}
+
+
+char* getUptime()
+{
+	int hour, min;
+	long long amount;
+	char* uptime = (char*)malloc(LENGTH_SIZE * sizeof(char));
+	char buffer[LENGTH_SIZE];
+	FILE *fp;
+
+	if((fp = fopen("/proc/uptime", "r")) == NULL){
+		fprintf(stderr, "fopen error for /proc/uptime\n");
+		exit(1);
+	}
+
+	fscanf(fp, "%[^.]", buffer);
+	amount = atoll(buffer);
+	min = (amount / 60) % 60;
+	hour = amount / (60 * 60);
+
+	if(hour == 0)
+		sprintf(uptime, "%02d minutes  ", min);
+	else if(hour > 23)
+		sprintf(uptime, "%d day, %02d:%02d,  ", hour / 24, hour % 24, min);
+	else
+		sprintf(uptime, "%02d:%02d,  ", hour, min);
+
+	fclose(fp);
+
+	return uptime;
 }
 
 void get_ProcessStatus(Status *status)
@@ -154,7 +202,7 @@ void get_ProcessStatus(Status *status)
 
 		if((fp = fopen(filename, "r")) == NULL){
 			fprintf(stderr, "open error for %s\n", filename);
-			exit(1);
+			continue;
 		}
 
 		fscanf(fp, "%[^ ]", buf);
@@ -296,6 +344,7 @@ void print_Status(Status *status)
 	char buffer[BUFSIZE], tmp[BUFSIZE-10];
 	bzero(buffer, strlen(buffer));
 
+	status->uptime_status[size.ws_col - 1] ='\0';
 	printw("%s\n", status->uptime_status);
 
 	strcat(buffer, "Tasks: ");
@@ -304,6 +353,7 @@ void print_Status(Status *status)
 			status->process_state[3], status->process_state[4]);
 	strcat(buffer, tmp);
 
+	buffer[size.ws_col - 1] ='\0';
 	printw("%s\n", buffer);
 	bzero(buffer, strlen(buffer));
 	bzero(tmp, strlen(tmp));
@@ -322,6 +372,7 @@ void print_Status(Status *status)
 			, (double)status->cpu_share[7] / total_cpu * 100);
 	strcat(buffer, tmp);
 
+	buffer[size.ws_col - 1] ='\0';
 	printw("%s\n", buffer);
 	bzero(buffer, strlen(buffer));
 	bzero(tmp, strlen(tmp));
@@ -332,6 +383,7 @@ void print_Status(Status *status)
 			, status->physical_memory[2], status->physical_memory[3]);
 	strcat(buffer, tmp);
 
+	buffer[size.ws_col - 1] ='\0';
 	printw("%s\n", buffer);
 	bzero(buffer, strlen(buffer));
 	bzero(tmp, strlen(tmp));
@@ -342,6 +394,7 @@ void print_Status(Status *status)
 			, status->virtual_memory[2], status->virtual_memory[3]);
 	strcat(buffer, tmp);
 
+	buffer[size.ws_col - 1] ='\0';
 	printw("%s\n\n", buffer);
 }
 
@@ -606,9 +659,10 @@ void print_Table(Table *table_list, Status *status)
 	attrset(atts);
 	bzero(buffer, BUFSIZE);
 	strcat(buffer, "    PID USER      PR  NI    VIRT    RES    SHR S  ");
-	strcat(buffer, "\%CPU  \%MEM      TIME+ COMMAND           " );
+	strcat(buffer, "\%CPU  \%MEM      TIME+ COMMAND          	");
 
 	attron(atts);
+	buffer[size.ws_col-1] ='\0';
 	printw("%s\n", buffer);
 	attroff(atts);
 	atts = A_BOLD;
@@ -616,7 +670,7 @@ void print_Table(Table *table_list, Status *status)
 	sortByPid(table_list, num);
 	sortByCPUShare(table_list, num);
 
-	for(i = table_pos; i < num ; i++){
+	for(i = table_pos; i < size.ws_row+table_pos-7; i++){
 		bzero(buffer, BUFSIZE);
 		bzero(tmp, LENGTH_SIZE);
 
@@ -673,6 +727,7 @@ void print_Table(Table *table_list, Status *status)
 		sprintf(tmp, "%s", table_list[i].command);
 		strcat(buffer, tmp);
 
+		buffer[size.ws_col-1]='\0';
 		printw("%s\n", buffer);
 		attroff(atts);
 	}
