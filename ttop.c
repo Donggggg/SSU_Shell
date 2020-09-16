@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <dirent.h>
+#include <signal.h>
 #include <time.h>
 #include <termios.h>
 #include <sys/times.h>
@@ -10,12 +11,11 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <sys/ioctl.h>
-#include <signal.h>
 #include <ncurses.h>
 #include "ssu_shell.h"
 
-long long old_cpulist[8];
-long long **old_cpu_amount;
+long long old_cpulist[8]; // status용
+long long **old_cpu_amount; // table 용
 int old_num, table_pos, isAlarmed;
 long long total_memory;
 long long total_cpu_amount;
@@ -23,22 +23,23 @@ struct winsize size;
 
 int main()
 {
-	int i,key = 0;
+	int i, key = 0;
 	table_pos = 0;
 	isAlarmed = TRUE;
 
 	initscr();
 	cbreak();
+
 	for(i = 0; i < 8; i++)
 		old_cpulist[i] = 0;
 
-	signal(SIGALRM, alarm_handler);
+	signal(SIGALRM, alarm_handler); // 시그널 등록
 
 	while(1)
 	{
-		ioctl(2, TIOCGWINSZ, &size);
+		ioctl(2, TIOCGWINSZ, &size); // 터미널크기 측정
 		alarm(3);
-		execute();
+		execute(); // 명령어 실행
 		refresh();
 		isAlarmed = FALSE;
 		key = getch();
@@ -52,6 +53,7 @@ int main()
 
 		clear();
 	}
+
 	endwin();
 }
 
@@ -80,13 +82,9 @@ void execute()
 void fill_Status(Status *status) 
 {
 	get_UptimeStatus(status);
-
 	get_ProcessStatus(status);
-
 	get_CPUStatus(status);
-
 	get_MemoryStatus(status);
-
 }
 
 void get_UptimeStatus(Status *status) 
@@ -102,15 +100,17 @@ void get_UptimeStatus(Status *status)
 
 	strcat(buffer, "top - ");
 
+	// 현재 시간 
 	time(&now);
 	tm = *localtime(&now);
 	sprintf(tmp, "%02d:%02d:%02d ", tm.tm_hour, tm.tm_min, tm.tm_sec);
 	strcat(buffer, tmp);
 
+	// 부팅 후 흐른 시간
 	strcat(buffer, "up ");
-
 	strcat(buffer, getUptime());
 
+	// 총 유저 수
 	if((fp = fopen("/etc/passwd", "r")) == NULL){
 		fprintf(stderr, "fopen error for /proc/loadavg");
 		exit(1);
@@ -125,6 +125,7 @@ void get_UptimeStatus(Status *status)
 	strcat(buffer, tmp);
 	fclose(fp);
 
+	// load average
 	if((fp = fopen("/proc/loadavg", "r")) == NULL){
 		fprintf(stderr, "fopen error for /proc/loadavg");
 		exit(1);
@@ -145,7 +146,6 @@ void get_UptimeStatus(Status *status)
 
 }
 
-
 char* getUptime()
 {
 	int hour, min;
@@ -164,6 +164,7 @@ char* getUptime()
 	min = (amount / 60) % 60;
 	hour = amount / (60 * 60);
 
+	// 경우에 따른 출력형식 조정
 	if(hour == 0)
 		sprintf(uptime, "%02d minutes  ", min);
 	else if(hour > 23)
@@ -187,7 +188,6 @@ void get_ProcessStatus(Status *status)
 		status->process_state[i] = 0;
 
 	num = scandir("/proc", &namelist, NULL, alphasort);
-	//	strcat(filename, "/proc/");
 
 	for(i = 0; i < num; i++){ // '/proc' 디렉토리 순회 탐색
 		if(!strcmp(namelist[i]->d_name, ".") || !strcmp(namelist[i]->d_name, "..")
@@ -214,10 +214,10 @@ void get_ProcessStatus(Status *status)
 		fscanf(fp, "%[^ ]", buf);
 		fgetc(fp);
 
-		status->process_state[0]++;
+		status->process_state[0]++; // total 증가
 
 		if(!strcmp(buf, "R"))
-			status->process_state[1]++;
+			status->process_state[1]++; 
 		else if(!strcmp(buf, "S") || !strcmp(buf, "I"))
 			status->process_state[2]++;
 		else if(!strcmp(buf, "T") || !strcmp(buf, "t"))

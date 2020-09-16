@@ -37,6 +37,20 @@ typedef struct process_table {
 	long long cpu_amount;
 }Table;
 
+typedef struct process_table2 {
+	char user[16];
+	int pid;
+	long long cpu;
+	long long mem;
+	long long VSZ;
+	long long RSS;
+	char tty[10];
+	char STAT[6];
+	char start[10];
+	char time[10];
+	char command[LENGTH_SIZE];
+}Table2;
+
 void execute();
 void alarm_handler(int signo);
 char* getUptime();
