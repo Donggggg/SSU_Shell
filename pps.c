@@ -87,10 +87,13 @@ void execute2()
 
 Table2** fill_Table2()
 {
-	int i, j, num, pid, pNum = 0, selftty, cur = 0;
+	int i, j, num, pid, pNum = 0, selftty, cur = 0, isOkay;
+	int tty;
+	uid_t uid = getuid();
 	char filename[LENGTH_SIZE], tmp[BUFSIZE], buf[BUFSIZE];
 	FILE *fp;
 	struct dirent **namelist;
+	struct stat statbuf;
 	Table2** tablelist;
 
 	num = scandir("/proc", &namelist, NULL, alphasort);
@@ -118,9 +121,11 @@ Table2** fill_Table2()
 				|| !atoi(namelist[i]->d_name))
 			continue;
 
+		isOkay = TRUE;
 		bzero(filename, LENGTH_SIZE);
 		strcat(filename, "/proc/");
 		strcat(filename, namelist[i]->d_name);
+		stat(filename, &statbuf);
 		strcat(filename, "/stat");
 
 		fp = fopen(filename, "r");
@@ -132,13 +137,17 @@ Table2** fill_Table2()
 
 		bzero(buf, BUFSIZE);
 		fscanf(fp, "%[^ ]", buf);
+		tty = atoi(buf);
 
-		if(aOption && atoi(buf) != 0){
-			tablelist[cur] = getRow(namelist[i]->d_name);
-			cur++;
-		}
-		// 옵션 없이 실행한 경우
-		else if(selftty == atoi(buf)){
+
+		if(!aOption && uid != statbuf.st_uid)
+			isOkay = FALSE;
+		if(!xOption && tty == 0)
+			isOkay = FALSE;
+		if(!aOption && !xOption && selftty != tty)
+			isOkay = FALSE;
+
+		if(isOkay){
 			tablelist[cur] = getRow(namelist[i]->d_name);
 			cur++;
 		}
@@ -221,7 +230,6 @@ Table2* getRow(char *pid) // 테이블 목록 한 행 구하는 함수
 	Table2* row = (Table2*)malloc(sizeof(Table2));
 	struct stat statbuf;
 
-	printf("[%s]\n", pid);
 	bzero(filename, LENGTH_SIZE);
 	bzero(row->STAT, 6);
 	strcat(filename, "/proc/");
@@ -240,7 +248,12 @@ Table2* getRow(char *pid) // 테이블 목록 한 행 구하는 함수
 		fscanf(fp, "%[^ ]", buf);
 		fgetc(fp);
 
-		if(i == 2)
+		if(i == 1) {
+			buf[0]='[';
+			buf[strlen(buf)-1]=']';
+			strcpy(row->command, buf);
+		}
+		else if(i == 2)
 			row->STAT[0] = buf[0];
 		else if(i == 5 && !strcmp(buf, pid)) // session
 			row->STAT[3] = 's';
@@ -265,7 +278,7 @@ Table2* getRow(char *pid) // 테이블 목록 한 행 구하는 함수
 		else if(i == 21){
 			strcpy(row->start, getStratTime(atoll(buf)));
 			row->cpu = getCPUTime(row->cpu, atoll(buf));
-	}
+		}
 	}
 
 	fclose(fp);
@@ -278,6 +291,9 @@ Table2* getRow(char *pid) // 테이블 목록 한 행 구하는 함수
 		fscanf(fp, "%[^\n]", buf);
 		fgetc(fp);
 
+		row->VSZ = 0;
+		row->RSS = 0;
+
 		if(!strcmp(tmp, "VmSize")) // VmSize
 			row->VSZ = atoll(buf);
 		else if(!strcmp(tmp, "VmRSS")) // VmRSS
@@ -287,8 +303,10 @@ Table2* getRow(char *pid) // 테이블 목록 한 행 구하는 함수
 	}
 
 	fclose(fp);
-	
-	strcpy(row->command, getCommand(pid));
+
+	strcpy(tmp, getCommand(pid));
+	if(tmp[0] != '?')
+		strcpy(row->command, tmp);
 
 	int pos = 1;
 	for(i = 1; i < 6; i++)
@@ -302,7 +320,7 @@ Table2* getRow(char *pid) // 테이블 목록 한 행 구하는 함수
 long long getCPUTime(long long cputime, long long starttime)
 {
 	long long uptime, percent = 0;
-	
+
 	uptime = getUpTime();
 
 	starttime /= sysconf(_SC_CLK_TCK);
@@ -347,15 +365,20 @@ time_t getUpTime()
 
 char *getTime2(long long amount)
 {
-	int min, sec;
+	int hour, min, sec;
 	char* time = (char*)malloc(10 * sizeof(char));
 
 	amount /= sysconf(_SC_CLK_TCK);
 	min = amount / 60;
+	hour = min / 60;
 	sec = amount % 60;
 
 	if(min > 999)
 		return "undefined";
+	else if(!uOption){
+		sprintf(time, "%02d:%02d:%02d", hour, min, sec);
+		return time;
+	}
 	else {
 		sprintf(time, "%3d:%02d", min, sec);
 		return time;
@@ -432,14 +455,19 @@ char* getCommand(char* pid)
 	fp = fopen(filename, "r");
 	fread(command, BUFSIZE, 1, fp);
 	length = ftell(fp);
-
-	for(i = 0; i < length-1; i++)
-		if(command[i] == '\0')
-			command[i] = ' ';
-
 	fclose(fp);
 
+	if(length == 0)
+		return "?";
+	else if(uOption){
+		for(i = 0; i < length-1; i++)
+			if(command[i] == '\0')
+				command[i] = ' ';
+
+		return command;
+	}
 	return command;
+
 }
 
 void sortTableByPID(Table2 **tablelist, int num)
@@ -464,61 +492,94 @@ void print_Table2(Table2 **tablelist) // 목록 출력 함수
 	char buffer[BUFSIZE], tmp[LENGTH_SIZE], tmp2[BUFSIZE];
 
 	bzero(buffer, BUFSIZE);
-	sprintf(buffer, "%-12s%4s %s %s%7s%6s %s      %s %s   %s %s", "USER", "PID", "\%CPU", 
-			"%MEM", "VSZ", "RSS", "TTY", "STAT", "START", "TIME", "COMMAND");
-	printf("%s\n", buffer);
 
-	while(cur < total_proc)
+	if(uOption)
 	{
-		bzero(buffer, BUFSIZE);
-
-		bzero(tmp, LENGTH_SIZE);
-		sprintf(tmp, "%-10s", tablelist[cur]->user);
-		strcat(buffer, tmp);
-
-		bzero(tmp, LENGTH_SIZE);
-		sprintf(tmp, "%6d ", tablelist[cur]->pid);
-		strcat(buffer, tmp);
-
-		bzero(tmp, LENGTH_SIZE);
-		sprintf(tmp, "%4.1f ", (double)tablelist[cur]->cpu / 10);
-		strcat(buffer, tmp);
-
-		bzero(tmp, LENGTH_SIZE);
-		tablelist[cur]->mem = (double)tablelist[cur]->RSS / total_mem * 1000;
-		sprintf(tmp, "%4.1f ", (double)tablelist[cur]->mem / 10);
-		strcat(buffer, tmp);
-
-		bzero(tmp, LENGTH_SIZE);
-		sprintf(tmp, "%6lld ", tablelist[cur]->VSZ);
-		strcat(buffer, tmp);
-
-		bzero(tmp, LENGTH_SIZE);
-		sprintf(tmp, "%5lld ", tablelist[cur]->RSS);
-		strcat(buffer, tmp);
-
-		bzero(tmp, LENGTH_SIZE);
-		sprintf(tmp, "%-8s ", tablelist[cur]->tty);
-		strcat(buffer, tmp);
-
-		bzero(tmp, LENGTH_SIZE);
-		sprintf(tmp, "%-4s ", tablelist[cur]->STAT);
-		strcat(buffer, tmp);
-
-		bzero(tmp, LENGTH_SIZE);
-		sprintf(tmp, "%s ", tablelist[cur]->start);
-		strcat(buffer, tmp);
-
-		bzero(tmp, LENGTH_SIZE);
-		sprintf(tmp, "%6s ", tablelist[cur]->time);
-		strcat(buffer, tmp);
-
-		bzero(tmp, LENGTH_SIZE);
-		sprintf(tmp2, "%s", tablelist[cur]->command);
-		strcat(buffer, tmp2);
-
-		buffer[size.ws_col] = '\0';
+		sprintf(buffer, "%-12s%4s %s %s%7s%6s %s      %s %s   %s %s", "USER", "PID", "\%CPU", 
+				"%MEM", "VSZ", "RSS", "TTY", "STAT", "START", "TIME", "COMMAND");
 		printf("%s\n", buffer);
-		cur++;
+
+		while(cur < total_proc)
+		{
+			bzero(buffer, BUFSIZE);
+
+			bzero(tmp, LENGTH_SIZE);
+			sprintf(tmp, "%-10s", tablelist[cur]->user);
+			strcat(buffer, tmp);
+
+			bzero(tmp, LENGTH_SIZE);
+			sprintf(tmp, "%6d ", tablelist[cur]->pid);
+			strcat(buffer, tmp);
+
+			bzero(tmp, LENGTH_SIZE);
+			sprintf(tmp, "%4.1f ", (double)tablelist[cur]->cpu / 10);
+			strcat(buffer, tmp);
+
+			bzero(tmp, LENGTH_SIZE);
+			tablelist[cur]->mem = (double)tablelist[cur]->RSS / total_mem * 1000;
+			sprintf(tmp, "%4.1f ", (double)tablelist[cur]->mem / 10);
+			strcat(buffer, tmp);
+
+			bzero(tmp, LENGTH_SIZE);
+			sprintf(tmp, "%6lld ", tablelist[cur]->VSZ);
+			strcat(buffer, tmp);
+
+			bzero(tmp, LENGTH_SIZE);
+			sprintf(tmp, "%5lld ", tablelist[cur]->RSS);
+			strcat(buffer, tmp);
+
+			bzero(tmp, LENGTH_SIZE);
+			sprintf(tmp, "%-8s ", tablelist[cur]->tty);
+			strcat(buffer, tmp);
+
+			bzero(tmp, LENGTH_SIZE);
+			sprintf(tmp, "%-4s ", tablelist[cur]->STAT);
+			strcat(buffer, tmp);
+
+			bzero(tmp, LENGTH_SIZE);
+			sprintf(tmp, "%s ", tablelist[cur]->start);
+			strcat(buffer, tmp);
+
+			bzero(tmp, LENGTH_SIZE);
+			sprintf(tmp, "%6s ", tablelist[cur]->time);
+			strcat(buffer, tmp);
+
+			bzero(tmp, LENGTH_SIZE);
+			sprintf(tmp2, "%s", tablelist[cur]->command);
+			strcat(buffer, tmp2);
+			buffer[size.ws_col] = '\0';
+			printf("%s\n", buffer);
+			cur++;
+		}
+	}
+	else
+	{
+		sprintf(buffer, "%7s %-8s %8s %s", "PID", "TTY", "TIME", "CMD");
+		printf("%s\n", buffer);
+
+		while(cur < total_proc)
+		{
+			bzero(buffer, BUFSIZE);
+
+			bzero(tmp, LENGTH_SIZE);
+			sprintf(tmp, "%7d ", tablelist[cur]->pid);
+			strcat(buffer, tmp);
+
+			bzero(tmp, LENGTH_SIZE);
+			sprintf(tmp, "%-8s ", tablelist[cur]->tty);
+			strcat(buffer, tmp);
+
+			bzero(tmp, LENGTH_SIZE);
+			sprintf(tmp, "%8s ", tablelist[cur]->time);
+			strcat(buffer, tmp);
+
+			bzero(tmp, LENGTH_SIZE);
+			sprintf(tmp2, "%s", tablelist[cur]->command);
+			strcat(buffer, tmp2);
+
+			buffer[size.ws_col] = '\0';
+			printf("%s\n", buffer);
+			cur++;
+		}
 	}
 }
