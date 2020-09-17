@@ -544,7 +544,7 @@ Table* fill_Table(Status *status) // 이거 할당 타이밍 생각해보자.
 	return tablelist;
 
 }
-
+/*
 char* getUser(int uid)
 {
 	char *name, tmp[LENGTH_SIZE], value[LENGTH_SIZE];
@@ -580,11 +580,8 @@ char* getUser(int uid)
 			fgetc(fp);
 		}
 	}
-
-
-
 }
-
+*/
 char* getTime(long long ttime)
 {
 	int hour, sec, min;
