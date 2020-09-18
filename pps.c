@@ -9,21 +9,6 @@
 #include <sys/ioctl.h>
 #include "ssu_shell.h"
 
-void setOptions(char *argv);
-void execute2();
-Table2** fill_Table2();
-void setTotalAmount();
-int getSelfTerminalNumber(char *name);
-char *getStratTime(long long starttime);
-char *getTime2(long long amount);
-Table2* getRow(char* pid);
-char* getCommand(char* pid);
-char * getTerminal(long unsigned int tty_nr);
-void sortTableByPID(Table2 **tablelist, int num);
-void print_Table2(Table2 **tablelist);
-long long getCPUTime(long long cputime, long long starttime);
-time_t getUpTime();
-
 int aOption, uOption, xOption;
 long long total_cpu_amount;
 long long total_mem;
@@ -32,6 +17,8 @@ struct winsize size;
 
 int main(int argc, char *argv[])
 {
+	Table2 **tablelist;
+
 	if(argc > 2){
 		fprintf(stderr, "no more than 2 arguments\n");
 		exit(1);
@@ -45,7 +32,10 @@ int main(int argc, char *argv[])
 	if(argc == 2)
 		setOptions(argv[1]);
 
-	execute2();
+	setTotalAmount();
+	tablelist = fill_Table2();
+	sortTableByPID(tablelist, total_proc);
+	print_Table2(tablelist);
 
 	return 0;
 }
@@ -54,10 +44,8 @@ void setOptions(char *args)
 {
 	int i;
 
-	for(i = 0; args[i] != '\0'; i++)
-	{
-		switch(args[i]) 
-		{
+	for(i = 0; args[i] != '\0'; i++) {
+		switch(args[i]) {
 			case 'a' :
 				aOption = TRUE;
 				break;
@@ -75,20 +63,10 @@ void setOptions(char *args)
 	}
 }
 
-void execute2()
-{
-	Table2 **tablelist;
-
-	setTotalAmount();
-	tablelist = fill_Table2();
-	sortTableByPID(tablelist, total_proc);
-	print_Table2(tablelist);
-}
-
 Table2** fill_Table2()
 {
-	int i, j, num, pid, pNum = 0, selftty, cur = 0, isOkay;
-	int tty;
+	int i, j, num, pNum = 0, cur = 0;
+	int tty, selftty, pid, isOkay;
 	uid_t uid = getuid();
 	char filename[LENGTH_SIZE], tmp[BUFSIZE], buf[BUFSIZE];
 	FILE *fp;
@@ -104,9 +82,10 @@ Table2** fill_Table2()
 		if(!strcmp(namelist[i]->d_name, ".") || !strcmp(namelist[i]->d_name, "..")
 				|| !atoi(namelist[i]->d_name))
 			continue;
+
 		pNum++;
 
-		if(pid == atoi(namelist[i]->d_name))
+		if(pid == atoi(namelist[i]->d_name)) // 현재 프로세스 터미널 넘버 저장
 			selftty = getSelfTerminalNumber(namelist[i]->d_name);
 	}
 
@@ -139,15 +118,17 @@ Table2** fill_Table2()
 		fscanf(fp, "%[^ ]", buf);
 		tty = atoi(buf);
 
-
-		if(!aOption && uid != statbuf.st_uid)
+		// 옵션, uid, tty로 출력여부 결정
+		if(!aOption && uid != statbuf.st_uid) 
 			isOkay = FALSE;
 		if(!xOption && tty == 0)
 			isOkay = FALSE;
-		if(!aOption && !xOption && selftty != tty)
+		if(!aOption && !xOption && !uOption && selftty != tty)
+			isOkay = FALSE;
+		if(!aOption && !xOption && uOption && uid != statbuf.st_uid)
 			isOkay = FALSE;
 
-		if(isOkay){
+		if(isOkay) { // 출력대상인 경우 필드정보 세팅
 			tablelist[cur] = getRow(namelist[i]->d_name);
 			cur++;
 		}
@@ -178,7 +159,8 @@ void setTotalAmount() // CPU 및 메모리 총량 구하는 함수
 	fgetc(fp);
 	fgetc(fp);
 
-	for(i = 0; i < 8; i++){
+	// cpu의 time 총합
+	for(i = 0; i < 8; i++) {
 		fscanf(fp, "%[^ ]", buf);
 		fgetc(fp);
 		total_cpu_amount += atoll(buf);
@@ -186,6 +168,7 @@ void setTotalAmount() // CPU 및 메모리 총량 구하는 함수
 
 	fclose(fp);
 
+	// totalMem 추출
 	fp = fopen("/proc/meminfo", "r");
 	fscanf(fp, "%[^:]", tmp);
 	fgetc(fp);
@@ -206,12 +189,12 @@ int getSelfTerminalNumber(char *name) // 명령어 실행 터미널 넘버 구�
 	strcat(filename, name);
 	strcat(filename, "/stat");
 
-	if((fp = fopen(filename, "r")) == NULL){
+	if((fp = fopen(filename, "r")) == NULL) {
 		fprintf(stderr, "fopen error for %s\n", filename);
 		exit(1);
 	}
 
-	for(i = 0; i < 6; i++){
+	for(i = 0; i < 6; i++) { // tty_nr 항목까지 read
 		fscanf(fp, "%[^ ]", tmp);
 		fgetc(fp);
 	}
@@ -224,7 +207,7 @@ int getSelfTerminalNumber(char *name) // 명령어 실행 터미널 넘버 구�
 
 Table2* getRow(char *pid) // 테이블 목록 한 행 구하는 함수
 {
-	int i = 0;
+	int i = 0, pos;
 	char filename[LENGTH_SIZE], buf[BUFSIZE], tmp[BUFSIZE];
 	FILE *fp;
 	Table2* row = (Table2*)malloc(sizeof(Table2));
@@ -232,9 +215,11 @@ Table2* getRow(char *pid) // 테이블 목록 한 행 구하는 함수
 
 	bzero(filename, LENGTH_SIZE);
 	bzero(row->STAT, 6);
+	row->VSZ = 0;
+	row->RSS = 0;
+
 	strcat(filename, "/proc/");
 	strcat(filename, pid);
-
 	stat(filename, &statbuf);
 
 	strcpy(row->user, getUser(statbuf.st_uid)); // user
@@ -248,18 +233,18 @@ Table2* getRow(char *pid) // 테이블 목록 한 행 구하는 함수
 		fscanf(fp, "%[^ ]", buf);
 		fgetc(fp);
 
-		if(i == 1) {
+		if(i == 1) { // command
 			buf[0]='[';
 			buf[strlen(buf)-1]=']';
 			strcpy(row->command, buf);
 		}
-		else if(i == 2)
+		else if(i == 2) // STATE
 			row->STAT[0] = buf[0];
 		else if(i == 5 && !strcmp(buf, pid)) // session
 			row->STAT[3] = 's';
 		else if(i == 6)
 			strcpy(row->tty, getTerminal(atoi(buf))); // TTY
-		else if(i == 8 && atoi(buf) > 0) // tpgid
+		else if(i == 7 && atoi(buf) > 0) // tpgid
 			row->STAT[5] = '+';
 		else if(i == 13) // utime
 			row->cpu = atoll(buf);
@@ -275,7 +260,7 @@ Table2* getRow(char *pid) // 테이블 목록 한 행 구하는 함수
 		}
 		else if(i == 19 && atoi(buf) > 1) // thread_num
 			row->STAT[4] = 'l';
-		else if(i == 21){
+		else if(i == 21) { // starttime
 			strcpy(row->start, getStratTime(atoll(buf)));
 			row->cpu = getCPUTime(row->cpu, atoll(buf));
 		}
@@ -283,16 +268,13 @@ Table2* getRow(char *pid) // 테이블 목록 한 행 구하는 함수
 
 	fclose(fp);
 
-	strcat(filename, "us");
+	strcat(filename, "us"); // '/proc/pid/status' open
 	fp = fopen(filename, "r");
 
 	while(fscanf(fp, "%[^:]", tmp) != EOF){
 		fgetc(fp);
 		fscanf(fp, "%[^\n]", buf);
 		fgetc(fp);
-
-		row->VSZ = 0;
-		row->RSS = 0;
 
 		if(!strcmp(tmp, "VmSize")) // VmSize
 			row->VSZ = atoll(buf);
@@ -304,12 +286,13 @@ Table2* getRow(char *pid) // 테이블 목록 한 행 구하는 함수
 
 	fclose(fp);
 
-	strcpy(tmp, getCommand(pid));
+	// 명령어 필드 추출 위치 결정 (cmdline or command)
+	strcpy(tmp, getCommand(pid));  
 	if(tmp[0] != '?')
 		strcpy(row->command, tmp);
 
-	int pos = 1;
-	for(i = 1; i < 6; i++)
+	// STAT 필드 문자열 정렬
+	for(i = 1, pos = 1; i < 6; i++)
 		if(row->STAT[i] != (char)0)
 			row->STAT[pos++] = row->STAT[i];
 	row->STAT[pos] = '\0';
@@ -317,7 +300,7 @@ Table2* getRow(char *pid) // 테이블 목록 한 행 구하는 함수
 	return row;
 }
 
-long long getCPUTime(long long cputime, long long starttime)
+long long getCPUTime(long long cputime, long long starttime) // cpu 점유율 구하는 함수
 {
 	long long uptime, percent = 0;
 
@@ -327,12 +310,12 @@ long long getCPUTime(long long cputime, long long starttime)
 	uptime -= starttime;
 
 	if(uptime != 0)
-		percent = (cputime*10) / uptime;
+		percent = (cputime * 10) / uptime;
 
 	return percent;
 }
 
-char *getStratTime(long long starttime)
+char *getStratTime(long long starttime) // 프로세스 시작 시간 구하는 함수
 {
 	char* stime = (char*)malloc(10 * sizeof(char));
 	time_t uptime, now;
@@ -351,7 +334,7 @@ char *getStratTime(long long starttime)
 	return stime;
 }
 
-time_t getUpTime()
+time_t getUpTime() // uptime 구하는 함수
 {
 	FILE *fp;
 	char buf[LENGTH_SIZE];
@@ -363,7 +346,7 @@ time_t getUpTime()
 	return atoi(buf);
 }
 
-char *getTime2(long long amount)
+char *getTime2(long long amount) // cputime 구하는 함수
 {
 	int hour, min, sec;
 	char* time = (char*)malloc(10 * sizeof(char));
@@ -373,13 +356,13 @@ char *getTime2(long long amount)
 	hour = min / 60;
 	sec = amount % 60;
 
-	if(min > 999)
+	if(min > 999) // 999분이 넘는 경우
 		return "undefined";
-	else if(!uOption){
-		sprintf(time, "%02d:%02d:%02d", hour, min, sec);
+	else if(!aOption && !uOption && !xOption) { // u옵션 없는 경우
+		sprintf(time, "%02d:%02d:%02d", hour, min % 60, sec);
 		return time;
 	}
-	else {
+	else { // 옵션 있는 경우
 		sprintf(time, "%3d:%02d", min, sec);
 		return time;
 	}
@@ -394,12 +377,13 @@ char * getTerminal(long unsigned int tty_nr) // 터미널 구하는 함수
 	struct dirent **namelist;
 
 	bzero(terminal, PATH_SIZE);
+
 	if(tty_nr == 0) // 터미널이 없는 경우
 		return "?";
 
 	num = scandir("/dev", &namelist, NULL, alphasort);
 
-	for(i = 0; i < num; i++){ // "/dev/tty*" 탐색
+	for(i = 0; i < num; i++) { // "/dev/tty*" 탐색
 		if(!strcmp(namelist[i]->d_name, ".") || !strcmp(namelist[i]->d_name, "..")
 				|| strncmp(namelist[i]->d_name, "tty", 3))
 			continue;
@@ -409,7 +393,7 @@ char * getTerminal(long unsigned int tty_nr) // 터미널 구하는 함수
 		strcat(filename, namelist[i]->d_name);
 		stat(filename, &statbuf);
 
-		if(tty_nr == statbuf.st_rdev){ 
+		if(tty_nr == statbuf.st_rdev) {  
 			strcpy(terminal, namelist[i]->d_name);
 			return terminal;
 		}
@@ -417,7 +401,7 @@ char * getTerminal(long unsigned int tty_nr) // 터미널 구하는 함수
 
 	num = scandir("/dev/pts", &namelist, NULL, alphasort);
 
-	for(i = 0; i < num; i++){ // "/dev/pts/*" 탐색
+	for(i = 0; i < num; i++) { // "/dev/pts/*" 탐색
 		if(!strcmp(namelist[i]->d_name, ".") || !strcmp(namelist[i]->d_name, ".."))
 			continue;
 
@@ -426,7 +410,7 @@ char * getTerminal(long unsigned int tty_nr) // 터미널 구하는 함수
 		strcat(filename, namelist[i]->d_name);
 		stat(filename, &statbuf);
 
-		if(tty_nr == statbuf.st_rdev){
+		if(tty_nr == statbuf.st_rdev) {
 			strcat(terminal, "pts/");
 			strcat(terminal, namelist[i]->d_name);
 			return terminal;
@@ -438,10 +422,9 @@ char * getTerminal(long unsigned int tty_nr) // 터미널 구하는 함수
 	free(namelist[i]);
 
 	return terminal;
-
 }
 
-char* getCommand(char* pid)
+char* getCommand(char* pid) // 명령어 항목 구하는 함수
 {
 	int i, length;
 	char* command = (char*)malloc(BUFSIZE * sizeof(char));
@@ -457,33 +440,31 @@ char* getCommand(char* pid)
 	length = ftell(fp);
 	fclose(fp);
 
-	if(length == 0)
+	if(length == 0) // cmdline 파일이 빈 경우
 		return "?";
-	else if(uOption){
-		for(i = 0; i < length-1; i++)
+	else if(aOption || uOption || xOption) { // ^@ 처리
+		for(i = 0; i < length - 1; i++)
 			if(command[i] == '\0')
 				command[i] = ' ';
 
 		return command;
 	}
-	return command;
 
+	return command;
 }
 
-void sortTableByPID(Table2 **tablelist, int num)
+void sortTableByPID(Table2 **tablelist, int num) // pid 기준 오름차순 정렬 함수
 {
 	int i, j;
 	Table2 *tmp = (Table2*)malloc(sizeof(Table2));
 
-	for(i = 0; i < num; i++){
-		for(j = i; j < num; j++){
+	for(i = 0; i < num; i++)
+		for(j = i; j < num; j++)
 			if(tablelist[i]->pid > tablelist[j]->pid){
 				tmp = tablelist[i];
 				tablelist[i] = tablelist[j];
 				tablelist[j] = tmp;
 			}
-		}
-	}
 }
 
 void print_Table2(Table2 **tablelist) // 목록 출력 함수
@@ -493,7 +474,7 @@ void print_Table2(Table2 **tablelist) // 목록 출력 함수
 
 	bzero(buffer, BUFSIZE);
 
-	if(uOption)
+	if(uOption) // u옵션 시 출력
 	{
 		sprintf(buffer, "%-12s%4s %s %s%7s%6s %s      %s %s   %s %s", "USER", "PID", "\%CPU", 
 				"%MEM", "VSZ", "RSS", "TTY", "STAT", "START", "TIME", "COMMAND");
@@ -552,9 +533,12 @@ void print_Table2(Table2 **tablelist) // 목록 출력 함수
 			cur++;
 		}
 	}
-	else
+	else // u옵션 없을 시 출력
 	{
-		sprintf(buffer, "%7s %-8s %8s %s", "PID", "TTY", "TIME", "CMD");
+		if(!aOption && !uOption && !xOption)
+			sprintf(buffer, "%7s %-8s %8s %s", "PID", "TTY", "TIME", "CMD");
+		else
+			sprintf(buffer, "%7s %-8s %s %6s %s", "PID", "TTY", "STAT", "TIME", "COMMAND");
 		printf("%s\n", buffer);
 
 		while(cur < total_proc)
@@ -569,8 +553,14 @@ void print_Table2(Table2 **tablelist) // 목록 출력 함수
 			sprintf(tmp, "%-8s ", tablelist[cur]->tty);
 			strcat(buffer, tmp);
 
+			if(aOption || xOption) {
+				bzero(tmp, LENGTH_SIZE);
+				sprintf(tmp, "%-4s ", tablelist[cur]->STAT);
+				strcat(buffer, tmp);
+			}
+
 			bzero(tmp, LENGTH_SIZE);
-			sprintf(tmp, "%8s ", tablelist[cur]->time);
+			sprintf(tmp, "%6s ", tablelist[cur]->time);
 			strcat(buffer, tmp);
 
 			bzero(tmp, LENGTH_SIZE);

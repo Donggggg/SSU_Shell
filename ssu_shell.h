@@ -28,7 +28,6 @@ typedef struct process_table {
 	long long RES; // real memory
 	long long SHR; // shared memory
 	long long cpu_share; // cpu percent
-	//double mem_share; // memory percent
 	char state; // state
 	char time[16]; // process time
 	char command[30]; // command name
@@ -54,7 +53,6 @@ typedef struct process_table2 {
 void execute();
 void alarm_handler(int signo);
 char* getUptime();
-void fill_Status(Status *status);
 void get_UptimeStatus(Status *status);
 void get_ProcessStatus(Status *status);
 void get_CPUStatus(Status *status);
@@ -65,3 +63,17 @@ long long findOldAmount(int pid);
 char* getUser(int uid);
 char* getTime(long long ttime);
 void print_Table(Table *table_list, Status *status);
+
+void setOptions(char *argv);
+Table2** fill_Table2();
+void setTotalAmount();
+int getSelfTerminalNumber(char *name);
+char *getStratTime(long long starttime);
+char *getTime2(long long amount);
+Table2* getRow(char* pid);
+char* getCommand(char* pid);
+char * getTerminal(long unsigned int tty_nr);
+void sortTableByPID(Table2 **tablelist, int num);
+void print_Table2(Table2 **tablelist);
+long long getCPUTime(long long cputime, long long starttime);
+time_t getUpTime();

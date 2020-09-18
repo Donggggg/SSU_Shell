@@ -28,12 +28,12 @@ int main()
 	isAlarmed = TRUE;
 
 	initscr();
-	cbreak();
+//	cbreak();
 
 	for(i = 0; i < 8; i++)
 		old_cpulist[i] = 0;
 
-	signal(SIGALRM, alarm_handler); // 시그널 등록
+	signal(SIGALRM, alarm_handler); // 알람시그널 함수 등록
 
 	while(1)
 	{
@@ -67,24 +67,19 @@ void alarm_handler(int signo)
 	}
 }
 
-void execute()
+void execute() // 테이블 갱신 및 출력 진행 함수
 {
 	Status *status = (Status*)malloc(sizeof(Status));
 	Table *table_list;
 
-	fill_Status(status);
-	print_Status(status);
-	table_list = fill_Table(status);
-	print_Table(table_list, status);
-	printw("											\n"); // 커서 지우기
-}
-
-void fill_Status(Status *status) 
-{
 	get_UptimeStatus(status);
 	get_ProcessStatus(status);
 	get_CPUStatus(status);
 	get_MemoryStatus(status);
+	print_Status(status);
+	table_list = fill_Table(status);
+	print_Table(table_list, status);
+	printw("											\n"); // 커서 지우기
 }
 
 void get_UptimeStatus(Status *status) 
@@ -471,10 +466,6 @@ Table* fill_Table(Status *status) // 이거 할당 타이밍 생각해보자.
 				case 18 : // nice
 					tablelist[cur].nice = atoi(buf);
 					break;
-				case 22 : // starttime
-					//	strcpy(tablelist[cur].time, getTime(starttime));
-					//tablelist[cur].nice = atoi(buf);
-					break;
 			}
 		}
 
@@ -544,44 +535,7 @@ Table* fill_Table(Status *status) // 이거 할당 타이밍 생각해보자.
 	return tablelist;
 
 }
-/*
-char* getUser(int uid)
-{
-	char *name, tmp[LENGTH_SIZE], value[LENGTH_SIZE];
-	FILE *fp;
 
-	name = (char*)malloc(LENGTH_SIZE * sizeof(char));
-	bzero(tmp, LENGTH_SIZE);
-	bzero(value, LENGTH_SIZE);
-	if((fp = fopen("/etc/passwd", "r")) == NULL){
-		fprintf(stderr, "fopen error for /etc/passwd");
-		exit(1);
-	}
-
-	while(1)
-	{
-		fscanf(fp, "%[^:]", value);
-		fgetc(fp);
-		fscanf(fp, "%[^:]", tmp);
-		fgetc(fp);
-		fscanf(fp, "%[^:]", tmp);
-
-		if(atoi(tmp) == uid){
-			if(strlen(value) > 7){
-				value[7] = '+';
-				value[8] = '\0';
-			}
-			name = value;
-			fclose(fp);
-			return name;
-		}
-		else{
-			fscanf(fp, "%[^\n]", tmp);
-			fgetc(fp);
-		}
-	}
-}
-*/
 char* getTime(long long ttime)
 {
 	int hour, sec, min;
@@ -598,6 +552,7 @@ char* getTime(long long ttime)
 		sprintf(tmp, "%d:%02d", hour, min);
 	else
 		sprintf(tmp, "%d:%02d.%02d", hour, min, sec);
+
 	strcpy(name, tmp);
 
 	return name;
@@ -619,15 +574,13 @@ void sortByPid(Table *tablelist, int num)
 	int i, j;
 	Table tmp;
 
-	for(i = 0; i < num; i++){
-		for(j = i; j < num; j++){
+	for(i = 0; i < num; i++)
+		for(j = i; j < num; j++)
 			if(tablelist[i].pid > tablelist[j].pid){
 				tmp = tablelist[i];
 				tablelist[i] = tablelist[j];
 				tablelist[j] = tmp;
 			}
-		}
-	}
 }
 
 void sortByCPUShare(Table *tablelist, int num)
@@ -635,15 +588,13 @@ void sortByCPUShare(Table *tablelist, int num)
 	int i, j;
 	Table tmp;
 
-	for(i = 0; i < num; i++){
-		for(j = i; j < num; j++){
+	for(i = 0; i < num; i++)
+		for(j = i; j < num; j++)
 			if(tablelist[i].cpu_share < tablelist[j].cpu_share){
 				tmp = tablelist[i];
 				tablelist[i] = tablelist[j];
 				tablelist[j] = tmp;
 			}
-		}
-	}
 }
 
 void print_Table(Table *table_list, Status *status)
@@ -656,10 +607,10 @@ void print_Table(Table *table_list, Status *status)
 	attrset(atts);
 	bzero(buffer, BUFSIZE);
 	strcat(buffer, "    PID USER      PR  NI    VIRT    RES    SHR S  ");
-	strcat(buffer, "\%CPU  \%MEM      TIME+ COMMAND          	");
+	strcat(buffer, "\%CPU  \%MEM      TIME+ COMMAND                                                                                                                                            ");
 
 	attron(atts);
-	buffer[size.ws_col-1] ='\0';
+	buffer[size.ws_col - 1] ='\0';
 	printw("%s\n", buffer);
 	attroff(atts);
 	atts = A_BOLD;
@@ -729,7 +680,5 @@ void print_Table(Table *table_list, Status *status)
 		attroff(atts);
 	}
 
-
 	free(table_list);
-
 }
