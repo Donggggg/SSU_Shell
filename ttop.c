@@ -372,8 +372,8 @@ void print_Status(Status *status)
 	bzero(buffer, strlen(buffer));
 	bzero(tmp, strlen(tmp));
 
-	strcat(buffer, "MiB Mem :");
-	sprintf(tmp, "    %5.1f total,    %5.1f free,    %5.1f used,    %5.1f buff/cache"
+	strcat(buffer, "MiB Mem  :");
+	sprintf(tmp, "%9.1f total,%9.1f free,%9.1f used,%9.1f buff/cache"
 			, status->physical_memory[0], status->physical_memory[1]
 			, status->physical_memory[2], status->physical_memory[3]);
 	strcat(buffer, tmp);
@@ -384,7 +384,7 @@ void print_Status(Status *status)
 	bzero(tmp, strlen(tmp));
 
 	strcat(buffer, "MiB Swap :");
-	sprintf(tmp, "    %5.1f total,    %5.1f free,    %5.1f used,    %5.1f avail Mem"
+	sprintf(tmp, "%9.1f total,%9.1f free,%9.1f used,%9.1f avail Mem"
 			, status->virtual_memory[0], status->virtual_memory[1]
 			, status->virtual_memory[2], status->virtual_memory[3]);
 	strcat(buffer, tmp);
