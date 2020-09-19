@@ -244,7 +244,7 @@ Table2* getRow(char *pid) // 테이블 목록 한 행 구하는 함수
 			row->STAT[3] = 's';
 		else if(i == 6)
 			strcpy(row->tty, getTerminal(atoi(buf))); // TTY
-		else if(i == 7 && atoi(buf) > 0) // tpgid
+		else if(i == 7 && atoi(buf) == getpgid(atoi(pid))) // tpgid
 			row->STAT[5] = '+';
 		else if(i == 13) // utime
 			row->cpu = atoll(buf);

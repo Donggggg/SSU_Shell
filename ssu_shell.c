@@ -6,8 +6,6 @@
 #include <sys/wait.h>
 #include "ssu_shell.h"
 
-const char COMMAND_PATH[PATH_SIZE] = "/bin/";
-char pipe_name[PIPE_NAME_SIZE] = "pipe";
 int pipes;
 
 char **tokenize(char *line) // 명령어 토크나이징

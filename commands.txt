@@ -1,5 +1,6 @@
+cat commands.txt
 echo Hello world
 ls
+ps aux | grep bash
 pwd
 sleep 1
-cat commands.txt
