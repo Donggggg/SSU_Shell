@@ -28,7 +28,6 @@ int main()
 	isAlarmed = TRUE;
 
 	initscr();
-//	cbreak();
 
 	for(i = 0; i < 8; i++)
 		old_cpulist[i] = 0;
@@ -57,7 +56,7 @@ int main()
 	endwin();
 }
 
-void alarm_handler(int signo)
+void alarm_handler(int signo) // 3초마다 갱신을 위한 알람 시그널 핸들러 함수
 {
 	if(signo == SIGALRM){
 		clear();
@@ -82,7 +81,7 @@ void execute() // 테이블 갱신 및 출력 진행 함수
 	printw("											\n"); // 커서 지우기
 }
 
-void get_UptimeStatus(Status *status) 
+void get_UptimeStatus(Status *status) // 상단 1번 라인 세팅 함수
 {
 	int i, userNum = 0;
 	char buffer[BUFSIZE], tmp[BUFSIZE - 10];
@@ -141,7 +140,7 @@ void get_UptimeStatus(Status *status)
 
 }
 
-char* getUptime()
+char* getUptime() // 부팅 후 흐른 시간(uptime) 세팅 함수
 {
 	int hour, min;
 	long long amount;
@@ -172,7 +171,7 @@ char* getUptime()
 	return uptime;
 }
 
-void get_ProcessStatus(Status *status)
+void get_ProcessStatus(Status *status) // 프로세스 상태 세팅 함수
 {
 	int i, num, pNum = 0;
 	char filename[BUFSIZE], buf[BUFSIZE];
@@ -195,10 +194,8 @@ void get_ProcessStatus(Status *status)
 		strcat(filename, namelist[i]->d_name);
 		strcat(filename, "/stat");
 
-		if((fp = fopen(filename, "r")) == NULL){
-			fprintf(stderr, "open error for %s\n", filename);
+		if((fp = fopen(filename, "r")) == NULL)
 			continue;
-		}
 
 		fscanf(fp, "%[^ ]", buf);
 		fgetc(fp);
@@ -224,6 +221,7 @@ void get_ProcessStatus(Status *status)
 
 	}
 
+	// 첫 실행인 경우, old cpu amount table 초기화
 	if(old_cpu_amount == NULL) {
 		old_cpu_amount = (long long**)malloc(pNum *sizeof(long long*));
 		old_num = pNum;
@@ -239,7 +237,7 @@ void get_ProcessStatus(Status *status)
 	free(namelist);
 }
 
-void get_CPUStatus(Status *status)
+void get_CPUStatus(Status *status) // 상단 3번 라인, %Cpu 정보 세팅
 {
 	int i;
 	FILE *fp;
@@ -261,6 +259,7 @@ void get_CPUStatus(Status *status)
 		total += cpu_list[i];
 	}
 
+	// 파싱값 세팅
 	status->cpu_share[0] = cpu_list[0] - old_cpulist[0];
 	status->cpu_share[1] = cpu_list[2] - old_cpulist[2];
 	status->cpu_share[2] = cpu_list[1] - old_cpulist[1];
@@ -273,7 +272,7 @@ void get_CPUStatus(Status *status)
 	fclose(fp);
 }
 
-void get_MemoryStatus(Status *status)
+void get_MemoryStatus(Status *status) // 메모리 정보 세팅 함수
 {
 	int i;
 	long long size, buff_cache = 0;
@@ -332,7 +331,7 @@ void get_MemoryStatus(Status *status)
 	fclose(fp);
 }
 
-void print_Status(Status *status)
+void print_Status(Status *status) // 상단 정보란 출력 함수
 {
 	int i;
 	long long total_cpu  = 0;
@@ -393,7 +392,7 @@ void print_Status(Status *status)
 	printw("%s\n\n", buffer);
 }
 
-Table* fill_Table(Status *status) // 이거 할당 타이밍 생각해보자.
+Table* fill_Table(Status *status) // 프로세스 테이블 값 세팅 함수
 {
 	int i, j, num, pNum = 0, cur=0;
 	char filename[LENGTH_SIZE], buf[BUFSIZE], tmp[BUFSIZE];
@@ -409,7 +408,8 @@ Table* fill_Table(Status *status) // 이거 할당 타이밍 생각해보자.
 
 	tablelist = (Table*)malloc(pNum * sizeof(Table));
 
-	for(i = 0; i < num; i++){
+	// 모든 프로세스 탐색
+	for(i = 0; i < num; i++){ 
 		if(!strcmp(namelist[i]->d_name, ".") || !strcmp(namelist[i]->d_name, "..")
 				|| !atoi(namelist[i]->d_name))
 			continue;
@@ -421,16 +421,13 @@ Table* fill_Table(Status *status) // 이거 할당 타이밍 생각해보자.
 		strcpy(tablelist[cur].user, getUser(statbuf.st_uid));
 		strcat(filename, "/stat");
 
-		if((fp = fopen(filename, "r")) == NULL){
-			fprintf(stderr, "fopen error for %s\n", filename);
+		if((fp = fopen(filename, "r")) == NULL)
 			continue;
-		}
-		strcat(filename, "us");
-		if((sfp = fopen(filename, "r")) == NULL){
-			fprintf(stderr, "fopen error for %s\n", filename);
-			continue;
-		}
 
+		strcat(filename, "us");
+
+		if((sfp = fopen(filename, "r")) == NULL)
+			continue;
 
 		for(j = 0 ; j < 23; j++){
 			fscanf(fp, "%[^ ]", buf);
@@ -519,14 +516,17 @@ Table* fill_Table(Status *status) // 이거 할당 타이밍 생각해보자.
 		free(namelist[i]);
 	free(namelist);
 
+	// old_cpu_amount 관리
 	free(old_cpu_amount);
 	old_cpu_amount = (long long**)malloc(pNum * sizeof(long long*));
 	old_num = pNum;
 
 	for(i = 0; i < pNum; i++){
+		// %CPU 세팅
 		tablelist[i].cpu_percent = (double)tablelist[i].cpu_share / total_cpu_amount * 100;
-		int ceil = tablelist[i].cpu_percent * 100;
+		int ceil = tablelist[i].cpu_percent * 100; // 소수점 한 자리 미만 버리기용 변수
 		tablelist[i].cpu_percent = (double)ceil / 100;
+		// old_cpu_amount table 매핑
 		old_cpu_amount[i] = (long long*)malloc(2 * sizeof(long long));
 		old_cpu_amount[i][0] = tablelist[i].pid;
 		old_cpu_amount[i][1] = tablelist[i].cpu_amount;
@@ -536,7 +536,7 @@ Table* fill_Table(Status *status) // 이거 할당 타이밍 생각해보자.
 
 }
 
-char* getTime(long long ttime)
+char* getTime(long long ttime) // TIME+ 항목 세팅 함수
 {
 	int hour, sec, min;
 	char *name, tmp[LENGTH_SIZE];
@@ -558,7 +558,7 @@ char* getTime(long long ttime)
 	return name;
 }
 
-long long findOldAmount(int pid)
+long long findOldAmount(int pid) // (cpu_amount) new <-> old 매핑 함수
 {
 	int i;
 
@@ -597,7 +597,7 @@ void sortByCPUShare(Table *tablelist, int num)
 			}
 }
 
-void print_Table(Table *table_list, Status *status)
+void print_Table(Table *table_list, Status *status) // table 출력 함수 
 {
 	int i, num;
 	char buffer[BUFSIZE], tmp[LENGTH_SIZE];

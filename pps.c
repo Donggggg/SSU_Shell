@@ -40,7 +40,7 @@ int main(int argc, char *argv[])
 	return 0;
 }
 
-void setOptions(char *args)
+void setOptions(char *args) // 옵션 세팅 함수
 {
 	int i;
 
@@ -63,7 +63,7 @@ void setOptions(char *args)
 	}
 }
 
-Table2** fill_Table2()
+Table2** fill_Table2() // 프로세스 테이블 세팅 함수
 {
 	int i, j, num, pNum = 0, cur = 0;
 	int tty, selftty, pid, isOkay;
